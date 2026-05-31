@@ -1,0 +1,15 @@
+[package]
+name = "keygraph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Generic bounded key graph: nodes, parent edges, layers, position addressing, traversal, and structural invariants (shared by the EP overlay and the GB broadcast graphs)."
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true
