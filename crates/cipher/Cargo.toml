@@ -1,0 +1,19 @@
+[package]
+name = "cipher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Symmetric AEAD (AES-256-GCM), ECIES, authenticated key-wrap, and the project Signer/Verifier wrapper over the verified secp256k1 pin."
+
+[dependencies]
+thiserror = { workspace = true }
+zeroize = { workspace = true }
+secmem = { path = "../secmem" }
+ckd = { path = "../ckd" }
+k256 = { workspace = true }
+aes-gcm = { workspace = true }
+hkdf = { workspace = true }
+sha2 = { workspace = true }
+
+[lints]
+workspace = true
