@@ -5,11 +5,15 @@
 //! this. Secret inputs and outputs are `SecretBytes`; decrypted plaintext is zeroized.
 
 mod aead;
+mod ecies;
 mod error;
 mod keywrap;
 mod sign;
 
 pub use aead::{open, seal, AeadCipher, Ciphertext, KEY_LEN, NONCE_LEN};
+pub use ecies::{
+    ecies_decrypt, ecies_encrypt, open_for, seal_for, EciesCiphertext, Recipient, SealedMessage,
+};
 pub use error::CipherError;
 pub use keywrap::{unwrap, wrap, WrappedKey};
 pub use sign::{Secp256k1Signer, Secp256k1Verifier, Signer, Verifier};
@@ -105,5 +109,69 @@ mod tests {
         let verifier = Secp256k1Verifier::new(signer.verifying_key().unwrap());
         assert!(verifier.verify(message, &sig));
         assert!(!verifier.verify(b"a different message", &sig));
+    }
+
+    fn recipient_keypair() -> (Vec<u8>, [u8; 33]) {
+        let key = ckd::XPriv::from_seed(&[0x42u8; 32]).unwrap();
+        (
+            key.private_key_bytes().to_vec(),
+            key.public_key_compressed().unwrap(),
+        )
+    }
+
+    // TST-CIPH-011: ECIES round-trips; the wrong private key and a tampered ciphertext
+    // both fail.
+    #[test]
+    fn tst_ciph_011_ecies() {
+        let (priv_bytes, pub_bytes) = recipient_keypair();
+        let message = b"asymmetric payload";
+        let ct = ecies_encrypt(&pub_bytes, message, b"ctx").unwrap();
+        assert_eq!(
+            ecies_decrypt(&priv_bytes, &ct, b"ctx").unwrap().expose(),
+            message
+        );
+        // wrong recipient key fails.
+        let (other_priv, _) = {
+            let key = ckd::XPriv::from_seed(&[0x99u8; 32]).unwrap();
+            (key.private_key_bytes().to_vec(), ())
+        };
+        assert!(ecies_decrypt(&other_priv, &ct, b"ctx").is_err());
+        // tampered ciphertext fails.
+        let mut bad = ct.clone();
+        if let Some(b) = bad.bytes.first_mut() {
+            *b ^= 0xff;
+        }
+        assert!(ecies_decrypt(&priv_bytes, &bad, b"ctx").is_err());
+        // a fresh encryption uses a fresh ephemeral key.
+        let ct2 = ecies_encrypt(&pub_bytes, message, b"ctx").unwrap();
+        assert_ne!(ct.ephemeral_public_key, ct2.ephemeral_public_key);
+    }
+
+    // TST-CIPH-014: both symmetric and asymmetric modes are selectable and round-trip.
+    #[test]
+    fn tst_ciph_014_symmetric_asymmetric_selector() {
+        let message = b"mode-selectable message";
+        // symmetric
+        let key = random_key();
+        let sym = seal_for(Recipient::Symmetric(key.expose()), message, b"a").unwrap();
+        assert!(matches!(sym, SealedMessage::Symmetric(_)));
+        assert_eq!(
+            open_for(Some(key.expose()), None, &sym, b"a")
+                .unwrap()
+                .expose(),
+            message
+        );
+        // asymmetric
+        let (priv_bytes, pub_bytes) = recipient_keypair();
+        let asym = seal_for(Recipient::Asymmetric(&pub_bytes), message, b"a").unwrap();
+        assert!(matches!(asym, SealedMessage::Asymmetric(_)));
+        assert_eq!(
+            open_for(None, Some(&priv_bytes), &asym, b"a")
+                .unwrap()
+                .expose(),
+            message
+        );
+        // a mode mismatch is refused.
+        assert!(open_for(None, Some(&priv_bytes), &sym, b"a").is_err());
     }
 }
