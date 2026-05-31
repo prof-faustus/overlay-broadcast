@@ -1,0 +1,7 @@
+# Enforce LF for all text so rustfmt --check is stable across platforms.
+* text=auto eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.csv text eol=lf
+*.yml text eol=lf
