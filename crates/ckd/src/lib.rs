@@ -11,5 +11,7 @@ mod seeds;
 
 pub use ckd::{XPriv, XPub, HARDENED};
 pub use error::CkdError;
-pub use pin::{is_low_s, sign, verify, verify_strict, verifying_key};
+pub use pin::{
+    is_low_s, sign, sign_prehash_der, verify, verify_der_prehash, verify_strict, verifying_key,
+};
 pub use seeds::{Position, Seeds};

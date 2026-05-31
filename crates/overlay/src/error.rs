@@ -16,6 +16,9 @@ pub enum OverlayError {
     /// A transaction-construction or BSV operation failed.
     #[error("bsv error: {0}")]
     Bsv(#[from] bsv::BsvError),
+    /// A node client operation failed.
+    #[error("node error: {0}")]
+    Node(#[from] bsv::NodeError),
     /// A secure-random draw failed.
     #[error("randomness failure")]
     Random,

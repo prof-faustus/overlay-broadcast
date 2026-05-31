@@ -4,6 +4,7 @@
 //! NCC-audited). Higher layers use this via the cipher Signer/Verifier wrapper
 //! (REQ-CIPH-001); this module is the verified foundation.
 use crate::error::CkdError;
+use k256::ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
 use k256::ecdsa::signature::{Signer, Verifier};
 use k256::ecdsa::{Signature, SigningKey, VerifyingKey};
 
@@ -44,6 +45,31 @@ pub fn verify(key: &VerifyingKey, message: &[u8], signature: &Signature) -> bool
 #[must_use]
 pub fn verify_strict(key: &VerifyingKey, message: &[u8], signature: &Signature) -> bool {
     is_low_s(signature) && verify(key, message, signature)
+}
+
+/// Sign a 32-byte PREHASH (e.g. a BSV sighash) directly, low-S normalized, returning
+/// the DER-encoded signature. The prehash is the ECDSA digest; it is not re-hashed.
+///
+/// # Errors
+/// [`CkdError::BadKey`] if the private key is invalid or the prehash is malformed.
+pub fn sign_prehash_der(private_key: &[u8; 32], prehash: &[u8]) -> Result<Vec<u8>, CkdError> {
+    let key = SigningKey::from_slice(private_key).map_err(|_| CkdError::BadKey)?;
+    let signature: Signature = key.sign_prehash(prehash).map_err(|_| CkdError::BadKey)?;
+    let low_s = signature.normalize_s().unwrap_or(signature);
+    Ok(low_s.to_der().as_bytes().to_vec())
+}
+
+/// Verify a DER-encoded signature over a 32-byte PREHASH against a SEC1 public key,
+/// rejecting high-S (REQ-BSV-032).
+#[must_use]
+pub fn verify_der_prehash(public_key_sec1: &[u8], prehash: &[u8], signature_der: &[u8]) -> bool {
+    let Ok(key) = VerifyingKey::from_sec1_bytes(public_key_sec1) else {
+        return false;
+    };
+    let Ok(signature) = Signature::from_der(signature_der) else {
+        return false;
+    };
+    is_low_s(&signature) && key.verify_prehash(prehash, &signature).is_ok()
 }
 
 #[cfg(test)]
