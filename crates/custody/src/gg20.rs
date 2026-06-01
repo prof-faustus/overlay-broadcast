@@ -11,15 +11,17 @@
 //! Rounds: this reference runs the protocol in-process (as the FROST tests do); the
 //! pairwise MtA and the broadcast of `δ_i`, `Γ_i` map onto the network rounds of GG20.
 //!
-//! **Security status (REQ-CUS-002 known-attack disclosure):** every MtA in [`sign`] now
-//! verifies all three GG18/20 ZK proofs — the initiator range proof and the responder
-//! consistency proof Π′ ([`crate::rangeproof`]), and each party's Paillier-modulus
-//! well-formedness proof ([`crate::modulusproof`], checked once up front). A malicious
-//! initiator, a malicious responder, and a malformed Paillier modulus are all rejected.
-//! The only residual item is *identifiable abort* (attributing a fault to a specific party
-//! on failure), which needs the echo-broadcast consistency round; until then a bad party
-//! causes a clean typed error, not an attributable one. Production Paillier modulus must be
-//! ≥ 2048 bits; the correctness bound alone needs `n > q²`. See `docs/ARCHITECTURE.md`.
+//! **Security status (REQ-CUS-002 known-attack disclosure):** every MtA verifies all three
+//! GG18/20 ZK proofs — the initiator range proof and the responder consistency proof Π′
+//! ([`crate::rangeproof`]) and each party's Paillier-modulus proof ([`crate::modulusproof`])
+//! — and [`sign_identifiable`] provides **identifiable abort**: a bad modulus, range, or
+//! responder proof is attributed to the exact offending party ([`AbortError`]), and
+//! equivocation across the broadcast is caught and localized by
+//! [`crate::echo::run_echo_round`]. The remaining refinement is *type-7* attribution — if a
+//! fully-proof-valid run still yields an invalid final signature, pinpointing the bad `s_i`
+//! needs a per-party `s_i`-consistency proof; that is the last item. Production Paillier
+//! modulus must be ≥ 2048 bits; the correctness bound alone needs `n > q²`.
+//! See `docs/ARCHITECTURE.md`.
 use crate::error::CustodyError;
 use crate::modulusproof::{self, ModulusProof};
 use crate::paillier::PaillierPrivate;
@@ -38,6 +40,44 @@ const ORDER_BE: [u8; 32] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE,
     0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36, 0x41, 0x41,
 ];
+
+/// The kind of provable fault attributed to a party on an identifiable abort.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FaultKind {
+    /// The party's Paillier-modulus proof did not verify.
+    ModulusProof,
+    /// The party's MtA initiator range proof did not verify.
+    InitiatorRangeProof,
+    /// The party's MtA responder consistency proof did not verify.
+    ResponderProof,
+    /// The party equivocated in the echo-broadcast round.
+    Equivocation,
+}
+
+/// An identifiable abort: the party that provably cheated and how.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AbortError {
+    /// The index (within the signing quorum) of the faulty party.
+    pub party: usize,
+    /// What the party did wrong.
+    pub fault: FaultKind,
+}
+
+/// A signing failure: either an identifiable fault (a named party cheated) or a
+/// non-attributable internal error.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SignError {
+    /// A specific party provably cheated (identifiable abort).
+    Fault(AbortError),
+    /// A non-attributable internal error.
+    Internal(CustodyError),
+}
+
+impl From<CustodyError> for SignError {
+    fn from(error: CustodyError) -> Self {
+        SignError::Internal(error)
+    }
+}
 
 /// A GG20 signing party: a Shamir share, its own Paillier keypair, and the ring-Pedersen
 /// parameters it uses to verify other parties' MtA range proofs (REQ-CUS-004).
@@ -71,6 +111,13 @@ impl Gg20Party {
     pub fn index(&self) -> Scalar {
         self.share.x
     }
+
+    /// Test-only: replace this party's modulus proof with another party's, simulating a
+    /// party that publishes a modulus proof that does not match its own modulus.
+    #[cfg(test)]
+    pub(crate) fn corrupt_modulus_proof(&mut self, source: &Gg20Party) {
+        self.modulus_proof = source.modulus_proof.clone();
+    }
 }
 
 /// Trusted-dealer setup: split a group secret into `n` shares (threshold `t`) and wrap
@@ -99,14 +146,36 @@ pub fn dealer_keygen(
 /// [`CustodyError::InsufficientShares`] for `< 2` parties; [`CustodyError::Signing`] if
 /// the protocol degenerates (zero `r`/`s`, non-invertible `δ`).
 pub fn sign(parties: &[Gg20Party], message_hash: &[u8; 32]) -> Result<Vec<u8>, CustodyError> {
+    sign_identifiable(parties, message_hash).map_err(|error| match error {
+        SignError::Internal(inner) => inner,
+        SignError::Fault(_) => CustodyError::BadShare,
+    })
+}
+
+/// Like [`sign`], but on failure of an attributable check returns an [`AbortError`] naming
+/// the party that provably cheated and how — GG20 **identifiable abort** (REQ-CUS-004). A
+/// malformed modulus, a bad initiator range proof, or a bad responder consistency proof is
+/// localized to the offending party; equivocation across the broadcast is caught by
+/// [`crate::echo::run_echo_round`].
+///
+/// # Errors
+/// [`SignError::Fault`] for an identifiable party fault; [`SignError::Internal`] for a
+/// non-attributable failure.
+pub fn sign_identifiable(
+    parties: &[Gg20Party],
+    message_hash: &[u8; 32],
+) -> Result<Vec<u8>, SignError> {
     let count = parties.len();
     if count < 2 {
-        return Err(CustodyError::InsufficientShares);
+        return Err(SignError::Internal(CustodyError::InsufficientShares));
     }
-    // Reject any party whose Paillier modulus is not provably well-formed before it is used.
-    for party in parties {
+    // Reject any party whose Paillier modulus is not provably well-formed, naming it.
+    for (index, party) in parties.iter().enumerate() {
         if !modulusproof::verify(party.paillier.public().modulus(), &party.modulus_proof) {
-            return Err(CustodyError::BadShare);
+            return Err(SignError::Fault(AbortError {
+                party: index,
+                fault: FaultKind::ModulusProof,
+            }));
         }
     }
     let q = curve_order();
@@ -129,7 +198,7 @@ pub fn sign(parties: &[Gg20Party], message_hash: &[u8; 32]) -> Result<Vec<u8>, C
     });
     let r = point_x_as_scalar(&(gamma_point * delta_inv))?;
     if r == Scalar::ZERO {
-        return Err(CustodyError::Signing);
+        return Err(SignError::Internal(CustodyError::Signing));
     }
     let m = scalar_from_hash(message_hash);
     let s = k
@@ -137,9 +206,9 @@ pub fn sign(parties: &[Gg20Party], message_hash: &[u8; 32]) -> Result<Vec<u8>, C
         .zip(sigma.iter())
         .fold(Scalar::ZERO, |acc, (ki, si)| acc + m * *ki + r * *si);
     if s == Scalar::ZERO {
-        return Err(CustodyError::Signing);
+        return Err(SignError::Internal(CustodyError::Signing));
     }
-    assemble_der(r, s)
+    Ok(assemble_der(r, s)?)
 }
 
 // Initialise δ_i = k_i·γ_i and σ_i = k_i·w_i, then fold in every ordered pair's MtA so
@@ -151,7 +220,7 @@ fn mta_accumulate(
     gamma: &[Scalar],
     w: &[Scalar],
     q: &BigUint,
-) -> Result<(Vec<Scalar>, Vec<Scalar>), CustodyError> {
+) -> Result<(Vec<Scalar>, Vec<Scalar>), SignError> {
     let count = parties.len();
     let mut delta: Vec<Scalar> = k
         .iter()
@@ -170,6 +239,8 @@ fn mta_accumulate(
             let initiator = parties.get(i).ok_or(CustodyError::Signing)?;
             let responder_pedersen = &parties.get(j).ok_or(CustodyError::Signing)?.ring_pedersen;
             let (alpha, beta) = mta(
+                i,
+                j,
                 &initiator.paillier,
                 &initiator.ring_pedersen,
                 responder_pedersen,
@@ -178,6 +249,8 @@ fn mta_accumulate(
                 q,
             )?;
             let (mu, nu) = mta(
+                i,
+                j,
                 &initiator.paillier,
                 &initiator.ring_pedersen,
                 responder_pedersen,
@@ -198,23 +271,30 @@ fn mta_accumulate(
 // convert the product `a·b` into additive shares `(alpha, beta)` with `alpha + beta =
 // a·b mod q`, revealing neither input. `alpha` goes to the `a`-holder, `beta` to the
 // counterparty. Correctness needs `a·b + beta' < n`, guaranteed by `n > q²`.
+#[allow(clippy::too_many_arguments)]
 fn mta(
+    initiator_index: usize,
+    responder_index: usize,
     holder: &PaillierPrivate,
     initiator_pedersen: &RingPedersen,
     responder_pedersen: &RingPedersen,
     a: &Scalar,
     b: &Scalar,
     q: &BigUint,
-) -> Result<(Scalar, Scalar), CustodyError> {
+) -> Result<(Scalar, Scalar), SignError> {
     let public = holder.public();
     // Initiator (Alice) sends c_a = Enc(a) and proves a is in range; the responder verifies
-    // it under the responder's ring-Pedersen params (REQ-CUS-004).
+    // it under the responder's ring-Pedersen params (REQ-CUS-004). A bad proof is attributed
+    // to the initiator.
     let a_big = scalar_to_biguint(a);
     let nonce = public.random_nonce()?;
     let c_a = public.encrypt_with(&a_big, &nonce);
     let range_proof = rangeproof::prove(public, responder_pedersen, &c_a, &a_big, &nonce, q)?;
     if !rangeproof::verify(public, responder_pedersen, &c_a, &range_proof, q) {
-        return Err(CustodyError::BadCommitment);
+        return Err(SignError::Fault(AbortError {
+            party: initiator_index,
+            fault: FaultKind::InitiatorRangeProof,
+        }));
     }
     // Responder (Bob) forms c_b = c_a^b · Enc(beta') with explicit randomness and proves the
     // response is well-formed with b in range; the initiator verifies it under the
@@ -237,7 +317,10 @@ fn mta(
         q,
     )?;
     if !rangeproof::verify_responder(public, initiator_pedersen, &c_a, &c_b, &responder_proof, q) {
-        return Err(CustodyError::BadCommitment);
+        return Err(SignError::Fault(AbortError {
+            party: responder_index,
+            fault: FaultKind::ResponderProof,
+        }));
     }
     let alpha = scalar_from_biguint_mod_q(&holder.decrypt(&c_b), q)?;
     Ok((alpha, -beta_prime))

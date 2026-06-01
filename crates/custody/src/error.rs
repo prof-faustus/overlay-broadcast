@@ -2,7 +2,7 @@
 use thiserror::Error;
 
 /// Errors from the custody layer.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum CustodyError {
     /// Invalid threshold parameters (e.g. threshold > shares).
     #[error("invalid threshold parameters")]

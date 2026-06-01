@@ -13,11 +13,14 @@
 //! requirement that a combined signature be a standard ECDSA signature for a BSV input.
 //! All three GG18/20 malicious-security ZK proofs are implemented and verified inside every
 //! MtA in [`gg20::sign`]: the initiator range proof and the responder consistency proof Π′
-//! ([`rangeproof`]) and the Paillier-modulus well-formedness proof ([`modulusproof`]). The
-//! only residual item is cryptographic *attribution* on abort (identifiable abort), which
-//! needs the echo-broadcast round — see `docs/ARCHITECTURE.md`.
+//! ([`rangeproof`]) and the Paillier-modulus well-formedness proof ([`modulusproof`]).
+//! [`gg20::sign_identifiable`] gives **identifiable abort** — a bad proof is attributed to
+//! the exact party ([`gg20::AbortError`]) and equivocation is localized by the
+//! echo-broadcast round ([`echo`]). The last refinement is type-7 final-signature
+//! attribution — see `docs/ARCHITECTURE.md`.
 #![forbid(unsafe_code)]
 
+pub mod echo;
 pub mod error;
 pub mod gg20;
 pub mod lifecycle;
@@ -263,6 +266,75 @@ mod tests {
         assert!(
             !verify_responder(public, &pedersen, &c_a, &tampered, &proof, &q),
             "the proof is bound to its response"
+        );
+    }
+
+    // TST-CUS-004 (echo-broadcast / identifiable abort): the echo round accepts consistent
+    // views and identifies the exact sender that equivocated (sent different round-one
+    // messages to different receivers).
+    #[test]
+    fn tst_cus_004f_echo_broadcast_identifies_equivocator() {
+        use crate::echo::{run_echo_round, EchoOutcome, PartyView};
+
+        // three parties, all receiving the same three round-one messages
+        let honest = vec![b"m0".to_vec(), b"m1".to_vec(), b"m2".to_vec()];
+        let consistent: Vec<PartyView> = (0..3)
+            .map(|receiver| PartyView {
+                receiver,
+                messages: honest.clone(),
+            })
+            .collect();
+        assert!(
+            matches!(run_echo_round(&consistent), EchoOutcome::Consistent(_)),
+            "agreeing views are consistent"
+        );
+
+        // party 1 equivocates: sends a different m1 to receiver 2
+        let view0 = PartyView {
+            receiver: 0,
+            messages: vec![b"m0".to_vec(), b"m1".to_vec(), b"m2".to_vec()],
+        };
+        let view1 = PartyView {
+            receiver: 1,
+            messages: vec![b"m0".to_vec(), b"m1".to_vec(), b"m2".to_vec()],
+        };
+        let view2 = PartyView {
+            receiver: 2,
+            messages: vec![b"m0".to_vec(), b"m1-EVIL".to_vec(), b"m2".to_vec()],
+        };
+        assert_eq!(
+            run_echo_round(&[view0, view1, view2]),
+            EchoOutcome::Equivocator(1),
+            "the equivocating sender is identified"
+        );
+    }
+
+    // TST-CUS-004 (identifiable abort): a party that publishes a modulus proof not matching
+    // its own modulus is named precisely by sign_identifiable, rather than failing silently.
+    #[test]
+    fn tst_cus_004g_identifiable_abort_attributes_fault() {
+        use gg20::{AbortError, FaultKind, SignError};
+
+        let (_group, mut parties) = gg20::dealer_keygen(2, 3, 1024).unwrap();
+        let prehash = [0x77u8; 32];
+
+        // honest run produces a signature
+        assert!(
+            gg20::sign_identifiable(&parties, &prehash).is_ok(),
+            "honest quorum signs"
+        );
+
+        // corrupt party 1's modulus proof (swap in party 2's) so it no longer matches
+        let source = parties[2].clone();
+        parties[1].corrupt_modulus_proof(&source);
+        let outcome = gg20::sign_identifiable(&parties, &prehash);
+        assert_eq!(
+            outcome,
+            Err(SignError::Fault(AbortError {
+                party: 1,
+                fault: FaultKind::ModulusProof
+            })),
+            "the cheating party is identified"
         );
     }
 

@@ -81,12 +81,17 @@ signing modes are built:
        (`tst_cus_004e`).
      - **Paillier-modulus proof** (Π_N; `custody::modulusproof`) — each party's modulus
        satisfies `gcd(N, φ(N)) = 1`, checked once up front in `sign` (`tst_cus_004d`).
-   - **Residual item — identifiable abort.** A malicious initiator/responder and a malformed
-     modulus are all *rejected* (clean typed error). What remains is cryptographic
-     *attribution* of a fault to a specific party on abort, which needs the echo-broadcast
-     consistency round; that is the last GG20 hardening step. Paillier modulus **≥ 2048 bits
-     in production** (the `n > q²` correctness bound alone needs ~512); tests use 1024, and
-     the modulus proof uses 12 challenges for test speed (production ≥ 80).
+   - **Identifiable abort — IMPLEMENTED (2026-06).** `gg20::sign_identifiable` returns an
+     `AbortError { party, fault }` naming the exact cheating party: a bad modulus /
+     initiator-range / responder proof is attributed to its prover, and **equivocation** (a
+     party sending different round-one messages to different receivers) is caught and
+     localized by the **echo-broadcast round** (`custody::echo::run_echo_round`,
+     Goldwasser–Lindell) — each receiver echoes a transcript hash and the disagreeing sender
+     is pinned (`tst_cus_004f`, `tst_cus_004g`). **Residual — type-7:** if a fully
+     proof-valid run still produced an invalid final signature, attributing the bad `s_i`
+     needs a per-party `s_i`-consistency proof; that is the only remaining GG20 item. Paillier
+     modulus **≥ 2048 bits in production** (the `n > q²` correctness bound alone needs ~512);
+     tests use 1024, and the modulus proof uses 12 challenges for test speed (production ≥ 80).
 2. **FROST true-threshold Schnorr** (Komlo–Goldberg 2020) — committed nonces, Lagrange on
    partial signatures, key never reconstructed; for authority signatures off the on-chain
    input path (REQ-CUS-001/003).
