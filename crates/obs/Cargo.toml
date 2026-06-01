@@ -1,0 +1,15 @@
+[package]
+name = "obs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Observability: Prometheus metrics, secret-redacting tracing, and health/readiness logic (the HTTP serving of these lives in the api crate)."
+
+[dependencies]
+thiserror = { workspace = true }
+prometheus = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true
