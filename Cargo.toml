@@ -3,7 +3,7 @@
 # depend on upper crates (enforced by review + cargo metadata cycle analysis).
 [workspace]
 resolver = "2"
-members = ["xtask", "crates/secmem", "crates/bsv", "crates/ckd", "crates/cipher", "crates/keygraph", "crates/overlay", "crates/broadcast", "crates/session", "crates/custody", "crates/kst", "crates/obs", "crates/api"]
+members = ["xtask", "crates/secmem", "crates/bsv", "crates/ckd", "crates/cipher", "crates/keygraph", "crates/overlay", "crates/broadcast", "crates/session", "crates/custody", "crates/kst", "crates/obs", "crates/api", "crates/res"]
 
 [workspace.package]
 edition = "2021"

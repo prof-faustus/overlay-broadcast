@@ -1,0 +1,15 @@
+[package]
+name = "res"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Resilience and state recovery: bounded backoff + circuit breaker, idempotent txid-keyed resubmission, threshold quorum tolerance, on-chain state rebuild, and graceful-shutdown rollback."
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]
+obs = { path = "../obs" }
+
+[lints]
+workspace = true
