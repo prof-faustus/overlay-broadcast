@@ -141,3 +141,8 @@ REQ-CON-010,CON,D,artifact-compose-offline-node
 REQ-CON-011,CON,D,artifact-compose-test-profile
 REQ-CON-020,CON,T,TST-CON-020
 REQ-CON-021,CON,T,gate-deny-audit-ci
+REQ-CMP-001,CMP,T,TST-CMP-001
+REQ-CMP-002,CMP,T,TST-CMP-002
+REQ-CMP-003,CMP,T,TST-CMP-003
+REQ-CMP-004,CMP,T,TST-CMP-004
+REQ-CMP-005,CMP,I,artifact-slos-md

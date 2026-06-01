@@ -1,0 +1,16 @@
+[package]
+name = "cmp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Compliance: on-chain content classification guard, crypto-shredding erasure, tamper-evident hash-chained audit, and recovery/incident drills."
+
+[dependencies]
+thiserror = { workspace = true }
+bsv = { path = "../bsv" }
+cipher = { path = "../cipher" }
+kst = { path = "../kst" }
+custody = { path = "../custody" }
+
+[lints]
+workspace = true
