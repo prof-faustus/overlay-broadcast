@@ -1,0 +1,33 @@
+[package]
+name = "cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Command-line interface: overlay/broadcast/session/custody subcommands plus selftest and reproduce, with clap parsing and typed errors."
+
+[[bin]]
+name = "overlay-broadcast"
+path = "src/main.rs"
+
+[lib]
+name = "cli"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror = { workspace = true }
+clap = { workspace = true }
+secmem = { path = "../secmem" }
+bsv = { path = "../bsv" }
+ckd = { path = "../ckd" }
+cipher = { path = "../cipher" }
+overlay = { path = "../overlay" }
+broadcast = { path = "../broadcast" }
+session = { path = "../session" }
+custody = { path = "../custody" }
+kst = { path = "../kst" }
+obs = { path = "../obs" }
+res = { path = "../res" }
+api = { path = "../api" }
+
+[lints]
+workspace = true

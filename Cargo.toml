@@ -3,7 +3,7 @@
 # depend on upper crates (enforced by review + cargo metadata cycle analysis).
 [workspace]
 resolver = "2"
-members = ["xtask", "crates/secmem", "crates/bsv", "crates/ckd", "crates/cipher", "crates/keygraph", "crates/overlay", "crates/broadcast", "crates/session", "crates/custody", "crates/kst", "crates/obs", "crates/api", "crates/res"]
+members = ["xtask", "crates/secmem", "crates/bsv", "crates/ckd", "crates/cipher", "crates/keygraph", "crates/overlay", "crates/broadcast", "crates/session", "crates/custody", "crates/kst", "crates/obs", "crates/api", "crates/res", "crates/cli"]
 
 [workspace.package]
 edition = "2021"
@@ -40,6 +40,8 @@ argon2 = "0.5"
 prometheus = { version = "0.13", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }
+# CLI (Section 15): argument parsing/validation.
+clap = { version = "4", features = ["derive"] }
 
 # REQ-GOV-031 / REQ-GOV-011: maximum lint strictness, denied workspace-wide. Each
 # crate opts in with `[lints] workspace = true`. `forbid(unsafe_code)` is applied as
