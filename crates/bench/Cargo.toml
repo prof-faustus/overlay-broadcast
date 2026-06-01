@@ -1,0 +1,14 @@
+[package]
+name = "bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Benchmark studies (REQ-BENCH-001/002) and a bounded soak harness (REQ-TST-040). Deterministic structural counts feed `reproduce`; latencies are this system's own measurements on the stated host."
+
+[dependencies]
+overlay = { path = "../overlay" }
+broadcast = { path = "../broadcast" }
+session = { path = "../session" }
+
+[lints]
+workspace = true
