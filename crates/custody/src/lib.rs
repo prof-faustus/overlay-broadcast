@@ -11,14 +11,16 @@
 //!
 //! The default authority signature is true-threshold; the GG20 path serves REQ-CUS-004's
 //! requirement that a combined signature be a standard ECDSA signature for a BSV input.
-//! GG20's malicious-security ZK range proofs are not yet implemented — see the
-//! [`gg20`] module caveat and `docs/ARCHITECTURE.md`.
+//! The GG18/20 MtA **range proof** ([`rangeproof`]) is implemented and verified inside
+//! every MtA in [`gg20::sign`]; the remaining hardening items (the responder MtAwc
+//! consistency proof and the Paillier-modulus proof) are noted in `docs/ARCHITECTURE.md`.
 #![forbid(unsafe_code)]
 
 pub mod error;
 pub mod gg20;
 pub mod lifecycle;
 mod paillier;
+pub mod rangeproof;
 pub mod reconstruction;
 pub mod shamir;
 pub mod threshold;
@@ -164,6 +166,45 @@ mod tests {
         assert!(
             !ckd::verify_der_prehash(&pubkey, &prehash, &der3),
             "k-1 shares cannot forge a signature under the group key"
+        );
+    }
+
+    // TST-CUS-004 (range proof): the GG18/20 MtA range proof (now exercised inside
+    // gg20::sign) verifies for an in-range value and is bound to its ciphertext — a
+    // malicious initiator cannot reuse a proof for a different (out-of-range) ciphertext.
+    #[test]
+    fn tst_cus_004c_mta_range_proof() {
+        use crate::paillier::PaillierPrivate;
+        use crate::rangeproof::{prove, verify, RingPedersen};
+        use num_bigint_dig::BigUint;
+
+        let paillier = PaillierPrivate::generate(1024).unwrap();
+        let pedersen = RingPedersen::generate(1024).unwrap();
+        let q = gg20::curve_order();
+        let value = BigUint::from(1_234_567u64);
+        let nonce = paillier.public().random_nonce().unwrap();
+        let ciphertext = paillier.public().encrypt_with(&value, &nonce);
+
+        let proof = prove(
+            paillier.public(),
+            &pedersen,
+            &ciphertext,
+            &value,
+            &nonce,
+            &q,
+        )
+        .unwrap();
+        assert!(
+            verify(paillier.public(), &pedersen, &ciphertext, &proof, &q),
+            "honest range proof verifies"
+        );
+
+        let other = paillier
+            .public()
+            .encrypt_with(&BigUint::from(42u64), &nonce);
+        assert!(
+            !verify(paillier.public(), &pedersen, &other, &proof, &q),
+            "the proof is bound to its ciphertext"
         );
     }
 

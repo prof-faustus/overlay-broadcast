@@ -11,15 +11,16 @@
 //! Rounds: this reference runs the protocol in-process (as the FROST tests do); the
 //! pairwise MtA and the broadcast of `δ_i`, `Γ_i` map onto the network rounds of GG20.
 //!
-//! **Security caveat (REQ-CUS-002 known-attack disclosure):** this implementation
-//! provides correctness and *semi-honest* security. It omits the Paillier-ciphertext ZK
-//! range proofs (MtA range proof, `g^{γ}` consistency proof, Paillier-modulus proof)
-//! that GG20 requires for malicious security and identifiable abort. A malicious party
-//! could deviate undetectably. Use only with mutually-trusting signers until the range
-//! proofs are added. The default Paillier modulus must be ≥ 2048 bits in production;
-//! the correctness bound only needs `n > q²`. See `docs/ARCHITECTURE.md`.
+//! **Security status (REQ-CUS-002 known-attack disclosure):** the MtA **range proof**
+//! ([`crate::rangeproof`], Alice's proof Π) is implemented and verified inside every MtA,
+//! so a malicious initiator can no longer smuggle an out-of-range value to leak the
+//! responder's secret. Still outstanding for full malicious security / identifiable abort:
+//! the responder MtAwc consistency proof (Π′, binding the response to `g^{γ}`) and the
+//! Paillier-modulus well-formedness proof. The default Paillier modulus must be ≥ 2048 bits
+//! in production; the correctness bound only needs `n > q²`. See `docs/ARCHITECTURE.md`.
 use crate::error::CustodyError;
 use crate::paillier::PaillierPrivate;
+use crate::rangeproof::{self, RingPedersen};
 use crate::shamir::{random_scalar, Share};
 use crate::threshold::{keygen, lagrange_coefficient, GroupKey};
 use k256::ecdsa::Signature;
@@ -35,22 +36,26 @@ const ORDER_BE: [u8; 32] = [
     0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36, 0x41, 0x41,
 ];
 
-/// A GG20 signing party: a Shamir share plus its own Paillier keypair.
+/// A GG20 signing party: a Shamir share, its own Paillier keypair, and the ring-Pedersen
+/// parameters it uses to verify other parties' MtA range proofs (REQ-CUS-004).
 #[derive(Clone, Debug)]
 pub struct Gg20Party {
     share: Share,
     paillier: PaillierPrivate,
+    ring_pedersen: RingPedersen,
 }
 
 impl Gg20Party {
-    /// Create a party, generating its Paillier keypair at `modulus_bits`.
+    /// Create a party, generating its Paillier keypair and ring-Pedersen parameters at
+    /// `modulus_bits`.
     ///
     /// # Errors
-    /// [`CustodyError`] if Paillier key generation fails.
+    /// [`CustodyError`] if key generation fails.
     pub fn new(share: Share, modulus_bits: usize) -> Result<Self, CustodyError> {
         Ok(Self {
             share,
             paillier: PaillierPrivate::generate(modulus_bits)?,
+            ring_pedersen: RingPedersen::generate(modulus_bits)?,
         })
     }
 
@@ -150,8 +155,9 @@ fn mta_accumulate(
             let gj = *gamma.get(j).ok_or(CustodyError::Signing)?;
             let wj = *w.get(j).ok_or(CustodyError::Signing)?;
             let paillier = &parties.get(i).ok_or(CustodyError::Signing)?.paillier;
-            let (alpha, beta) = mta(paillier, &ki, &gj, q)?;
-            let (mu, nu) = mta(paillier, &ki, &wj, q)?;
+            let verifier_pedersen = &parties.get(j).ok_or(CustodyError::Signing)?.ring_pedersen;
+            let (alpha, beta) = mta(paillier, verifier_pedersen, &ki, &gj, q)?;
+            let (mu, nu) = mta(paillier, verifier_pedersen, &ki, &wj, q)?;
             *delta.get_mut(i).ok_or(CustodyError::Signing)? += alpha;
             *delta.get_mut(j).ok_or(CustodyError::Signing)? += beta;
             *sigma.get_mut(i).ok_or(CustodyError::Signing)? += mu;
@@ -167,12 +173,21 @@ fn mta_accumulate(
 // counterparty. Correctness needs `a·b + beta' < n`, guaranteed by `n > q²`.
 fn mta(
     holder: &PaillierPrivate,
+    verifier_pedersen: &RingPedersen,
     a: &Scalar,
     b: &Scalar,
     q: &BigUint,
 ) -> Result<(Scalar, Scalar), CustodyError> {
     let public = holder.public();
-    let c_a = public.encrypt(&scalar_to_biguint(a))?;
+    let a_big = scalar_to_biguint(a);
+    let nonce = public.random_nonce()?;
+    let c_a = public.encrypt_with(&a_big, &nonce);
+    // The initiator proves c_a encrypts an in-range value; the counterparty verifies the
+    // range proof before doing the homomorphic step (REQ-CUS-004 malicious-security).
+    let proof = rangeproof::prove(public, verifier_pedersen, &c_a, &a_big, &nonce, q)?;
+    if !rangeproof::verify(public, verifier_pedersen, &c_a, &proof, q) {
+        return Err(CustodyError::BadCommitment);
+    }
     let beta_prime = random_scalar()?;
     let c_mul = public.mul_const(&c_a, &scalar_to_biguint(b));
     let c_beta = public.encrypt(&scalar_to_biguint(&beta_prime))?;
@@ -188,7 +203,7 @@ fn assemble_der(r: Scalar, s: Scalar) -> Result<Vec<u8>, CustodyError> {
     Ok(low_s.to_der().as_bytes().to_vec())
 }
 
-fn curve_order() -> BigUint {
+pub(crate) fn curve_order() -> BigUint {
     BigUint::from_bytes_be(&ORDER_BE)
 }
 

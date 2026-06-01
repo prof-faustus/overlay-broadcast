@@ -71,16 +71,19 @@ signing modes are built:
    - **Rounds:** the canonical GG20 flow is 1 offline round-set (commit `g^{γ_i}`,
      pairwise MtA for `δ=kγ` and `σ=kx`, reveal `δ_i`) + 1 online round (reveal `Γ_i`,
      broadcast `s_i`). This reference executes those rounds in-process.
-   - **Abort behaviour:** correctness/`semi-honest` only. The Paillier-ciphertext **ZK
-     range proofs** (MtA range proof, consistency proof for `g^{γ_i}`, Paillier-modulus
-     well-formedness proof) that GG20 needs for **malicious security and identifiable
-     abort are NOT yet implemented.** Current behaviour on a cheating party is a silent
-     bad signature (caught by final ECDSA verification), not identifiable abort.
-   - **Known-attack caveats:** without the range proofs a malicious signer can deviate
-     undetectably (e.g. small-factor / out-of-range Paillier attacks); use only among
-     mutually-trusting signers until the proofs are added. Paillier modulus **≥ 2048 bits
-     in production** (the `n > q²` correctness bound alone needs ~512); tests use 1024 for
-     speed. This is the next hardening item for the custody crate.
+   - **Range proof — IMPLEMENTED (2026-06).** The GG18/20 MtA **range proof** (Alice's
+     proof Π; `custody::rangeproof`) is implemented over ring-Pedersen parameters with
+     Fiat–Shamir and is **verified inside every MtA** in `gg20::sign` (`TST-CUS-004` +
+     `tst_cus_004c_mta_range_proof`). A malicious initiator can no longer smuggle an
+     out-of-range value to leak the responder's secret. Still outstanding for full
+     malicious security / identifiable abort: the **responder MtAwc consistency proof**
+     (Π′, binding the homomorphic response to `g^{γ_i}`) and the **Paillier-modulus
+     well-formedness proof** — the next hardening items.
+   - **Known-attack caveats:** with the initiator range proof in place, the residual gap is
+     a malicious *responder* (no Π′ yet) and an ill-formed Paillier modulus (no modulus
+     proof yet); until both land, run among mutually-trusting signers for the strongest
+     guarantee. Paillier modulus **≥ 2048 bits in production** (the `n > q²` correctness
+     bound alone needs ~512); tests use 1024 for speed.
 2. **FROST true-threshold Schnorr** (Komlo–Goldberg 2020) — committed nonces, Lagrange on
    partial signatures, key never reconstructed; for authority signatures off the on-chain
    input path (REQ-CUS-001/003).

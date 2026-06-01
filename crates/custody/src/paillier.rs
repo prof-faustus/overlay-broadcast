@@ -30,20 +30,50 @@ pub struct PaillierPrivate {
 }
 
 impl PaillierPublic {
+    /// The modulus `n`.
+    #[must_use]
+    pub fn modulus(&self) -> &BigUint {
+        &self.n
+    }
+
+    /// The precomputed `n²`.
+    #[must_use]
+    pub fn modulus_squared(&self) -> &BigUint {
+        &self.nn
+    }
+
+    /// A fresh nonce in `Z*_n` (non-zero).
+    ///
+    /// # Errors
+    /// [`CustodyError::Random`] if a usable nonce cannot be drawn.
+    pub fn random_nonce(&self) -> Result<BigUint, CustodyError> {
+        let mut rng = OsRng;
+        let zero = BigUint::from(0u8);
+        for _ in 0..16u8 {
+            let candidate = rng.gen_biguint_below(&self.n);
+            if candidate != zero {
+                return Ok(candidate);
+            }
+        }
+        Err(CustodyError::Random)
+    }
+
+    /// Encrypt `m` (assumed `< n`) with the explicit nonce `r` (deterministic given `r`).
+    #[must_use]
+    pub fn encrypt_with(&self, m: &BigUint, r: &BigUint) -> BigUint {
+        let one = BigUint::from(1u8);
+        let gm = (&one + m * &self.n) % &self.nn;
+        let rn = r.modpow(&self.n, &self.nn);
+        (gm * rn) % &self.nn
+    }
+
     /// Encrypt `m` (assumed `< n`) with a fresh random nonce.
     ///
     /// # Errors
     /// [`CustodyError::Random`] if a usable nonce cannot be drawn.
     pub fn encrypt(&self, m: &BigUint) -> Result<BigUint, CustodyError> {
-        let mut rng = OsRng;
-        let one = BigUint::from(1u8);
-        let mut r = rng.gen_biguint_below(&self.n);
-        if r == BigUint::from(0u8) {
-            r = one.clone();
-        }
-        let gm = (&one + m * &self.n) % &self.nn;
-        let rn = r.modpow(&self.n, &self.nn);
-        Ok((gm * rn) % &self.nn)
+        let r = self.random_nonce()?;
+        Ok(self.encrypt_with(m, &r))
     }
 
     /// Homomorphic addition of plaintexts: `Enc(a)·Enc(b) mod n² = Enc(a+b)`.
