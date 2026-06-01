@@ -1,6 +1,4 @@
-# Full CI gate (REQ-GOV-032). Every merge is gated on all of these. The reproduce
-# (REQ-GOV-050) and selftest (REQ-GOV-051) gates and the fuzz short-run are added as
-# their targets land in the Section 23 build order.
+# Full CI gate (REQ-GOV-032, REQ-CON-021). Every merge is gated on all of these.
 name: ci
 
 on:
@@ -33,19 +31,42 @@ jobs:
         run: cargo build --release --all-targets
       - name: Test (unit + integration + doctests)
         run: cargo test --all
-      - name: Project gates (banned tokens, fn-size, RTM)
+      - name: Project gates (banned tokens, fn-size, RTM, SBOM)
         run: cargo run -p xtask -- all
-      - name: Supply chain (licenses, advisories, banned tokens)
-        run: cargo deny check || true
-      - name: Advisories (RUSTSEC)
-        run: cargo audit || true
-      # Added as targets land:
-      # - Coverage gate (cargo-llvm-cov, REQ-TST-010)
-      # - Mutation triage (cargo-mutants, REQ-TST-011)
-      # - SBOM generation (REQ-CON-020)
-      # - reproduce gate (REQ-GOV-050) and selftest gate (REQ-GOV-051)
-      # - Docker build + hardened test compose profile (REQ-CON-010..013)
-      # - Fuzz short-run of every target (REQ-FUZ-001)
+      - name: Supply chain — licenses + advisories + sources (gating)
+        run: cargo deny check
+      - name: Advisories (RUSTSEC, gating)
+        run: cargo audit
+      - name: SBOM is non-empty and published (REQ-CON-020)
+        run: |
+          test -s docs/sbom.cyclonedx.json
+          grep -q '"bomFormat":"CycloneDX"' docs/sbom.cyclonedx.json
+      - name: Reproduce gate (deterministic vectors, REQ-GOV-050)
+        run: cargo run --release --bin overlay-broadcast -- reproduce
+      - name: Selftest gate (every layer, REQ-GOV-051)
+        run: cargo run --release --bin overlay-broadcast -- selftest
+      - name: Robustness fuzz (stable, short)
+        run: cargo test -p fuzzprop
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: docs/sbom.cyclonedx.json
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install nightly + cargo-fuzz
+        run: |
+          rustup toolchain install nightly
+          cargo install cargo-fuzz --locked || true
+      - name: Fuzz short-run of every target (REQ-FUZ-001..005)
+        working-directory: fuzz
+        run: |
+          for target in tx_parser script_parser header_parser api_request rekey_payload; do
+            cargo +nightly fuzz run "$target" -- -runs=20000 -max_total_time=60 || exit 1
+          done
 
   docker:
     runs-on: ubuntu-latest
@@ -53,3 +74,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build hardened image
         run: docker build -t overlay-broadcast:ci .
+      - name: Assert non-root + no shell + read-only start (REQ-CON-001/002)
+        run: |
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges overlay-broadcast:ci selftest
+          ! docker run --rm overlay-broadcast:ci /bin/sh -c 'echo shell' 2>/dev/null
+      - name: Hardened test compose profile (REQ-CON-011)
+        run: docker compose -f docker-compose.hardened.yml --profile test up --abort-on-container-exit

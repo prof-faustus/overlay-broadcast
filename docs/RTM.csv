@@ -135,3 +135,9 @@ REQ-FUZ-003,FUZ,T,TST-FUZ-003
 REQ-FUZ-004,FUZ,T,TST-FUZ-004
 REQ-FUZ-005,FUZ,T,TST-FUZ-005
 REQ-FUZ-006,FUZ,T,TST-FUZ-006
+REQ-CON-001,CON,T,TST-CON-001-ci-docker-image
+REQ-CON-002,CON,T,TST-CON-002-ci-docker-image
+REQ-CON-010,CON,D,artifact-compose-offline-node
+REQ-CON-011,CON,D,artifact-compose-test-profile
+REQ-CON-020,CON,T,TST-CON-020
+REQ-CON-021,CON,T,gate-deny-audit-ci

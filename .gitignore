@@ -1,4 +1,11 @@
 /target
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
 **/*.rs.bk
 .DS_Store
 *.profraw
+# Generated SBOM (produced by `cargo run -p xtask -- sbom` / CI).
+/docs/sbom.cyclonedx.json
+# Scratch gate output.
+tasks_*.out

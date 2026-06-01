@@ -1,12 +1,15 @@
-# Hardened test profile (REQ-CON-010..013): non-root, read-only rootfs, dropped
-# capabilities, no new privileges, bounded resources. Service wiring is completed as
-# the api/cli crates land.
+# Hardened deployment + CI test compose (REQ-CON-010/011). The `api` service runs
+# hardened (non-root, read-only rootfs, all caps dropped, no-new-privileges); an
+# OfflineNodeClient fixture stands in for a BSV node in CI; a Teranode endpoint is
+# env-driven and commented for live runs. The `test` profile runs the full suite +
+# reproduce + selftest in-container.
 services:
-  app:
+  api:
     build:
       context: .
       dockerfile: Dockerfile
     image: overlay-broadcast:hardened
+    command: ["selftest"]
     read_only: true
     user: "65532:65532"
     cap_drop: ["ALL"]
@@ -16,7 +19,39 @@ services:
     mem_limit: 512m
     tmpfs:
       - /tmp:size=16m
+    # Secrets injected at runtime only (never baked into the image).
+    environment:
+      - RUST_LOG=info
+      # - OPERATOR_PASSPHRASE_FILE=/run/secrets/operator_passphrase
+      # - TERANODE_ENDPOINT=${TERANODE_ENDPOINT:-}
+    healthcheck:
+      test: ["CMD", "/app/overlay-broadcast", "selftest"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     networks: [app]
+
+  # OfflineNodeClient fixture for CI: deterministic, no external network.
+  offline-node:
+    image: overlay-broadcast:hardened
+    command: ["reproduce"]
+    read_only: true
+    user: "65532:65532"
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    networks: [app]
+
+  # Test profile: the full suite + reproduce + selftest in-container
+  # (`docker compose --profile test up --abort-on-container-exit`).
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    image: overlay-broadcast:test
+    profiles: ["test"]
+    networks: [app]
+
 networks:
   app:
     driver: bridge

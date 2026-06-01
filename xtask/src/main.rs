@@ -49,7 +49,7 @@ impl fmt::Display for XError {
                 }
                 Ok(())
             }
-            Self::Usage => write!(f, "usage: xtask <banned-tokens|fn-size|rtm|all>"),
+            Self::Usage => write!(f, "usage: xtask <banned-tokens|fn-size|rtm|sbom|all>"),
             Self::NoRoot => write!(f, "cannot determine workspace root"),
         }
     }
@@ -71,6 +71,7 @@ fn main() -> ExitCode {
         Some("banned-tokens") => cmd_banned_tokens(&root),
         Some("fn-size") => cmd_fn_size(&root),
         Some("rtm") => cmd_rtm(&root),
+        Some("sbom") => cmd_sbom(&root),
         Some("all") => cmd_all(&root),
         _ => Err(XError::Usage),
     };
@@ -98,7 +99,68 @@ fn workspace_root() -> Result<PathBuf, XError> {
 fn cmd_all(root: &Path) -> Result<(), XError> {
     cmd_banned_tokens(root)?;
     cmd_fn_size(root)?;
-    cmd_rtm(root)
+    cmd_rtm(root)?;
+    cmd_sbom(root)
+}
+
+// ---- SBOM gate (REQ-CON-020) ------------------------------------------------
+// Generate a CycloneDX SBOM from Cargo.lock (no external tool needed) and fail if it
+// is empty or fails to cover the locked dependency set.
+
+fn cmd_sbom(root: &Path) -> Result<(), XError> {
+    let lock = fs::read_to_string(root.join("Cargo.lock"))?;
+    let (json, count) = build_sbom(&lock);
+    if count == 0 {
+        return Err(XError::Gate {
+            name: "sbom",
+            findings: vec!["SBOM has no components".to_owned()],
+        });
+    }
+    let out_dir = root.join("docs");
+    fs::create_dir_all(&out_dir)?;
+    fs::write(out_dir.join("sbom.cyclonedx.json"), json.as_bytes())?;
+    println!("sbom: {count} components written to docs/sbom.cyclonedx.json");
+    Ok(())
+}
+
+// Parse Cargo.lock `[[package]]` blocks into a minimal CycloneDX 1.5 document. Returns
+// the JSON and the component count.
+fn build_sbom(cargo_lock: &str) -> (String, usize) {
+    let mut components: Vec<(String, String)> = Vec::new();
+    let mut name: Option<String> = None;
+    for line in cargo_lock.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[[package]]" {
+            name = None;
+        } else if let Some(value) = trimmed.strip_prefix("name = ") {
+            name = Some(unquote(value));
+        } else if let Some(value) = trimmed.strip_prefix("version = ") {
+            if let Some(package_name) = name.take() {
+                components.push((package_name, unquote(value)));
+            }
+        }
+    }
+    let mut body = String::new();
+    for (index, (component_name, version)) in components.iter().enumerate() {
+        if index > 0 {
+            body.push(',');
+        }
+        body.push_str(&format!(
+            "{{\"type\":\"library\",\"name\":\"{}\",\"version\":\"{}\"}}",
+            json_escape(component_name),
+            json_escape(version)
+        ));
+    }
+    let json = format!("{{\"bomFormat\":\"CycloneDX\",\"specVersion\":\"1.5\",\"version\":1,\"components\":[{body}]}}\n");
+    (json, components.len())
+}
+
+fn unquote(value: &str) -> String {
+    value.trim().trim_matches('"').to_owned()
+}
+
+fn json_escape(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 // ---- file walking -----------------------------------------------------------
@@ -438,5 +500,25 @@ mod tests {
         assert!(is_fn_signature("    pub fn foo() {"));
         assert!(is_fn_signature("pub async fn bar() {"));
         assert!(!is_fn_signature("    fn private() {"));
+    }
+
+    // TST-CON-020: the SBOM is generated from Cargo.lock, is non-empty, and covers the
+    // locked dependency set with name+version per component.
+    #[test]
+    fn tst_con_020_sbom_covers_dependencies() {
+        let lock = "\
+[[package]]\nname = \"k256\"\nversion = \"0.13.4\"\n\n\
+[[package]]\nname = \"argon2\"\nversion = \"0.5.3\"\n";
+        let (json, count) = build_sbom(lock);
+        assert_eq!(count, 2, "every locked package is a component");
+        assert!(
+            json.contains("\"bomFormat\":\"CycloneDX\""),
+            "CycloneDX format"
+        );
+        assert!(json.contains("\"name\":\"k256\",\"version\":\"0.13.4\""));
+        assert!(json.contains("\"name\":\"argon2\",\"version\":\"0.5.3\""));
+
+        // an empty lock yields no components (and the gate would reject it)
+        assert_eq!(build_sbom("").1, 0);
     }
 }

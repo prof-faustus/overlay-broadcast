@@ -1,0 +1,12 @@
+# In-container test image (REQ-CON-011): runs the full suite + reproduce + selftest on a
+# clean checkout. Used by the compose `test` profile, not for production.
+FROM rust:1.96.0-slim AS test
+ENV CARGO_HTTP_CHECK_REVOKE=false
+WORKDIR /src
+COPY . .
+# Build once, then run all gates so a single `up` is green or fails the container.
+RUN cargo build --release --bin overlay-broadcast
+CMD cargo test --all \
+    && cargo run -p xtask -- all \
+    && cargo run --release --bin overlay-broadcast -- reproduce \
+    && cargo run --release --bin overlay-broadcast -- selftest

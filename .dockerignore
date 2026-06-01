@@ -1,0 +1,14 @@
+# Keep secrets and bulk/irrelevant paths out of the build context (REQ-CON-002).
+.git
+target
+legacy
+fuzz/target
+fuzz/corpus
+fuzz/artifacts
+**/*.key
+**/*.pem
+**/*.seed
+**/*.env
+.env
+secrets
+docs/sbom.cyclonedx.json
