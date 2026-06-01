@@ -72,7 +72,7 @@ impl Seeds {
         })
     }
 
-    /// Construct from independently-imported seeds (EP [0028]).
+    /// Construct from independently-imported seeds (EP para 0028).
     #[must_use]
     pub fn from_parts(first: SecretBytes, second: SecretBytes, third: SecretBytes) -> Self {
         Self {

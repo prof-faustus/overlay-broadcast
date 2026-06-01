@@ -156,3 +156,9 @@ REQ-TST-010,TST,T,gate-coverage-ci
 REQ-TST-011,TST,T,gate-mutation-ci
 REQ-TST-012,TST,T,TST-TST-012
 REQ-TST-050,TST,I,artifact-ignore-naming-discipline
+REQ-DOC-001,DOC,I,artifact-readme-md
+REQ-DOC-002,DOC,I,artifact-architecture-md
+REQ-DOC-003,DOC,I,artifact-security-md
+REQ-DOC-004,DOC,I,artifact-ops-repro-compliance-runbooks
+REQ-DOC-005,DOC,T,gate-cargo-doc-clean
+REQ-DOC-006,DOC,I,artifact-ckd-spec-security-md

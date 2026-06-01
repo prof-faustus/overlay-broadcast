@@ -2,7 +2,7 @@
 //! `secmem`: audited zeroizing secret containers with best-effort memory locking.
 //!
 //! This is the ONLY crate in the workspace that contains `unsafe` (REQ-GOV-010): the
-//! crate root denies `unsafe_code` and the single [`lock`] module re-enables it
+//! crate root denies `unsafe_code` and the single `lock` module re-enables it
 //! per-call with `// SAFETY:` justifications, for `mlock`/`VirtualLock` only. Every
 //! secret value lives in [`Secret`] or [`SecretBytes`]: zeroized on drop, redacted in
 //! `Debug`, never `Serialize`/`Display`, compared in constant time.

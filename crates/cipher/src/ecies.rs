@@ -138,7 +138,7 @@ pub enum SealedMessage {
 }
 
 /// Seal a message for a recipient, selecting symmetric or asymmetric per the recipient
-/// (REQ-CIPH-014, EP [0126], GB §5). The symmetric path uses a fresh random nonce.
+/// (REQ-CIPH-014, EP para 0126, GB §5). The symmetric path uses a fresh random nonce.
 ///
 /// # Errors
 /// [`CipherError`] on a randomness or AEAD failure.

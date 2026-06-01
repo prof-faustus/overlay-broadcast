@@ -9,7 +9,7 @@ use keygraph::{Bounds, KeyGraph, NodeId};
 /// The overlay network an overlay graph instantiates.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OverlayNetwork {
-    /// The Metanet reference instantiation (EP [0013]).
+    /// The Metanet reference instantiation (EP para 0013).
     Metanet,
     /// Any other overlay network meeting REQ-OVL-001, named.
     Generic(String),

@@ -60,7 +60,7 @@ pub fn push_data(out: &mut Vec<u8>, data: &[u8]) {
     out.extend_from_slice(data);
 }
 
-/// Build a P2PKH locking script: OP_DUP OP_HASH160 <h160> OP_EQUALVERIFY OP_CHECKSIG.
+/// Build a P2PKH locking script: `OP_DUP OP_HASH160 <h160> OP_EQUALVERIFY OP_CHECKSIG`.
 #[must_use]
 pub fn p2pkh(hash160: &[u8; 20]) -> Vec<u8> {
     let mut s = vec![op::DUP, op::HASH160];
@@ -70,7 +70,7 @@ pub fn p2pkh(hash160: &[u8; 20]) -> Vec<u8> {
     s
 }
 
-/// Build a 1-of-2 bare multisig: OP_1 <P_a> <P_b> OP_2 OP_CHECKMULTISIG (GB Tables 1-2).
+/// Build a 1-of-2 bare multisig: `OP_1 <P_a> <P_b> OP_2 OP_CHECKMULTISIG` (GB Tables 1-2).
 #[must_use]
 pub fn bare_multisig_1_of_2(pk_a: &[u8], pk_b: &[u8]) -> Vec<u8> {
     let mut s = vec![op::N1];
