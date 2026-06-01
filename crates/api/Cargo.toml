@@ -1,0 +1,17 @@
+[package]
+name = "api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Service-interface boundary: typed operation dispatch with input validation, pluggable signature auth + nonce/expiry replay protection, per-caller rate limiting, audit logging, startup config validation, and HeaderChain-rooted result acceptance."
+
+[dependencies]
+thiserror = { workspace = true }
+bsv = { path = "../bsv" }
+ckd = { path = "../ckd" }
+
+[dev-dependencies]
+k256 = { workspace = true }
+
+[lints]
+workspace = true
