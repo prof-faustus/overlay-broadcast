@@ -42,12 +42,17 @@ mod tests {
         // sign + verify against the returned public key (derive-or-use; key never exported)
         let prehash = [0x55u8; 32];
         let der = store.sign_prehash("authority", &prehash).unwrap();
-        assert!(ckd::verify_der_prehash(&pubkey, &prehash, &der), "store-signed signature verifies");
+        assert!(
+            ckd::verify_der_prehash(&pubkey, &prehash, &der),
+            "store-signed signature verifies"
+        );
         assert_eq!(store.public_key("authority").unwrap(), pubkey);
 
         // import a recognizable seed and assert it is NOT present at rest
         let marker = [0xABu8; 32];
-        store.import("marked", &SecretBytes::from_slice(&marker), true).unwrap();
+        store
+            .import("marked", &SecretBytes::from_slice(&marker), true)
+            .unwrap();
         let at_rest = store.ciphertext_at_rest("marked").unwrap();
         assert!(
             !at_rest.windows(marker.len()).any(|w| w == marker),
@@ -64,7 +69,7 @@ mod tests {
         // a ciphertext sealed under the correct KEK cannot be read under the wrong one:
         // move the marked entry over by reconstructing the scenario through wrap/unwrap.
         let wrapped = store.wrap(b"secret payload").unwrap();
-        assert_eq!(reopened.unwrap(&wrapped), Err(KstError::WrongKey));
+        assert!(matches!(reopened.unwrap(&wrapped), Err(KstError::WrongKey)));
     }
 
     // TST-KST-001: non-exportable keys cannot be exported; exportable ones can.
@@ -73,9 +78,12 @@ mod tests {
         let mut store = EncryptedFileKeyStore::new(b"pass").unwrap();
         store.generate("locked", false).unwrap();
         store.generate("free", true).unwrap();
-        assert_eq!(store.export("locked"), Err(KstError::NonExportable));
+        assert!(matches!(
+            store.export("locked"),
+            Err(KstError::NonExportable)
+        ));
         assert!(store.export("free").is_ok());
-        assert_eq!(store.export("missing"), Err(KstError::NotFound));
+        assert!(matches!(store.export("missing"), Err(KstError::NotFound)));
     }
 
     // TST-KST-001: crypto-shred removes the entry; subsequent use fails NotFound.
@@ -103,7 +111,11 @@ mod tests {
         let quorum = vec![shares[0].clone(), shares[2].clone(), shares[4].clone()];
         let mut recovered = EncryptedFileKeyStore::with_salt(b"pass", store.salt()).unwrap();
         recovered.restore("master", &quorum, true).unwrap();
-        assert_eq!(recovered.public_key("master").unwrap(), pubkey, "any 3 of 5 shares recover the exact key");
+        assert_eq!(
+            recovered.public_key("master").unwrap(),
+            pubkey,
+            "any 3 of 5 shares recover the exact key"
+        );
 
         // k-1 shares cannot reconstruct: the recovered key differs from the original
         let pair = vec![shares[0].clone(), shares[1].clone()];
@@ -122,7 +134,10 @@ mod tests {
         let secret = [0x42u8; 32];
         let shares = split(&secret, 2, 3).unwrap();
         let rendered = format!("{:?}", shares[0]);
-        assert!(rendered.contains("redacted"), "share body is redacted in Debug");
+        assert!(
+            rendered.contains("redacted"),
+            "share body is redacted in Debug"
+        );
         assert!(!rendered.contains("66, 66"), "no raw secret bytes in Debug");
     }
 

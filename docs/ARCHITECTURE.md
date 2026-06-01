@@ -30,6 +30,8 @@ next (REQ-BLD-001).
 | hashing | `sha2`, `ripemd`, `hmac`, `hkdf` (RustCrypto) | KAT-verified; double-SHA-256, hash160, HMAC-SHA512 (CKD), HKDF-SHA256 (ECIES) |
 | AEAD | `aes-gcm` (RustCrypto) | AES-256-GCM with enforced nonce-uniqueness invariant (REQ-CIPH-010) |
 | secret hygiene | `zeroize`, `subtle` | zeroize-on-drop, constant-time equality (Section 3) |
+| threshold ECDSA bignum | `num-bigint-dig` (features `prime`+`rand`), `num-integer`, `rand` | Paillier modular arithmetic + safe-prime generation for the hand-rolled GG20 MtA (REQ-CUS-004); same big-integer backend the RustCrypto `rsa` crate uses |
+| passphrase KDF | `argon2` (RustCrypto), Argon2id defaults | memory-hard KEK derivation for the encrypted-file KeyStore (REQ-KST-012) |
 
 ### BSV SDK (REQ-UNI-006/007)
 
@@ -85,11 +87,24 @@ signing modes are built:
 3. **Shamir-reconstruction ECDSA** — clearly-labelled fallback that transiently
    reconstructs a quorum, signs low-S ECDSA, and wipes the key (REQ-CUS-005).
 
-### KeyStore backends (REQ-KST-010/011)
+### KeyStore backends (REQ-KST-010/011/012)
 
-PKCS#11 HSM via `cryptoki`; cloud KMS via a pinned KMS client (envelope
-encryption). Both are integration-tested `#[ignore]` without the hardware/service,
-each naming the exact backend required (REQ-TST-050).
+Three tiers, lowest-assurance to highest:
+
+1. **Encrypted-file** (REQ-KST-012) — BUILT and tested (`kst::EncryptedFileKeyStore`).
+   Seeds AEAD-encrypted at rest (AES-256-GCM) under an Argon2id KEK derived from an
+   operator passphrase; the entry id is bound as AEAD associated data; no plaintext seed
+   touches the at-rest blob; a wrong passphrase fails the tag check. k-of-n Shamir seed
+   backup (GF(2^8), `kst::shamir256`) with each share KeyStore-protected (REQ-KST-020).
+2. **PKCS#11 HSM** (REQ-KST-010) — intended pin `cryptoki` (provisional; the de-facto
+   PKCS#11 Rust binding, dlopen-based so it builds without hardware). Integration test
+   `#[ignore]` until a PKCS#11 module/token (SoftHSM2 or hardware) is present.
+3. **Cloud KMS** (REQ-KST-011) — envelope encryption (data keys wrapped by a KMS master
+   key). KMS client crate to be pinned when a target service is chosen; integration test
+   `#[ignore]` until KMS credentials + a reachable service are present.
+
+The HSM/KMS crate pins are provisional, to be ratified before those backends are coded
+(they pull large dependency trees, so they are not added speculatively).
 
 ## Build-environment note (REQ-GOV-001 reproducibility)
 

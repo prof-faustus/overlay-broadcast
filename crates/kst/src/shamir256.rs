@@ -33,7 +33,10 @@ impl SeedShare {
 
 impl fmt::Debug for SeedShare {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SeedShare").field("index", &self.index).field("body", &"[redacted]").finish()
+        f.debug_struct("SeedShare")
+            .field("index", &self.index)
+            .field("body", &"[redacted]")
+            .finish()
     }
 }
 
@@ -87,7 +90,12 @@ pub fn split(secret: &[u8], threshold: u8, shares: u8) -> Result<Vec<SeedShare>,
     if threshold == 0 || shares == 0 || threshold > shares {
         return Err(KstError::BadParams);
     }
-    let mut out: Vec<SeedShare> = (1..=shares).map(|index| SeedShare { index, body: Vec::with_capacity(secret.len()) }).collect();
+    let mut out: Vec<SeedShare> = (1..=shares)
+        .map(|index| SeedShare {
+            index,
+            body: Vec::with_capacity(secret.len()),
+        })
+        .collect();
     let degree = usize::from(threshold - 1);
     for &byte in secret {
         let mut coeffs = vec![0u8; degree + 1];

@@ -81,5 +81,10 @@ pub trait KeyStore {
     ///
     /// # Errors
     /// [`KstError::InsufficientShares`] / [`KstError::WrongKey`] / [`KstError::BadParams`].
-    fn restore(&mut self, id: &str, shares: &[WrappedShare], exportable: bool) -> Result<(), KstError>;
+    fn restore(
+        &mut self,
+        id: &str,
+        shares: &[WrappedShare],
+        exportable: bool,
+    ) -> Result<(), KstError>;
 }

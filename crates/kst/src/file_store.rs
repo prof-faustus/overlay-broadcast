@@ -49,7 +49,11 @@ impl EncryptedFileKeyStore {
     /// [`KstError::Crypto`] if the KDF fails.
     pub fn with_salt(passphrase: &[u8], salt: [u8; SALT_LEN]) -> Result<Self, KstError> {
         let kek = derive_kek(passphrase, &salt)?;
-        Ok(Self { kek, salt, entries: HashMap::new() })
+        Ok(Self {
+            kek,
+            salt,
+            entries: HashMap::new(),
+        })
     }
 
     /// The store's salt (needed to re-open the persisted store).
@@ -61,19 +65,32 @@ impl EncryptedFileKeyStore {
     /// The raw ciphertext at rest for `id` (for persistence / encrypt-at-rest checks).
     #[must_use]
     pub fn ciphertext_at_rest(&self, id: &str) -> Option<&[u8]> {
-        self.entries.get(id).map(|entry| entry.ciphertext.as_slice())
+        self.entries
+            .get(id)
+            .map(|entry| entry.ciphertext.as_slice())
     }
 
     fn encrypt_seed(&self, id: &str, secret: &[u8], exportable: bool) -> Result<Entry, KstError> {
         let mut nonce = [0u8; NONCE_LEN];
         OsRandom.fill(&mut nonce).map_err(|_| KstError::Random)?;
-        let ciphertext = seal(self.kek.expose(), &nonce, secret, id.as_bytes()).map_err(|_| KstError::Crypto)?;
-        Ok(Entry { nonce, ciphertext, exportable })
+        let ciphertext =
+            seal(self.kek.expose(), &nonce, secret, id.as_bytes()).map_err(|_| KstError::Crypto)?;
+        Ok(Entry {
+            nonce,
+            ciphertext,
+            exportable,
+        })
     }
 
     fn decrypt_seed(&self, id: &str) -> Result<SecretBytes, KstError> {
         let entry = self.entries.get(id).ok_or(KstError::NotFound)?;
-        open(self.kek.expose(), &entry.nonce, &entry.ciphertext, id.as_bytes()).map_err(|_| KstError::WrongKey)
+        open(
+            self.kek.expose(),
+            &entry.nonce,
+            &entry.ciphertext,
+            id.as_bytes(),
+        )
+        .map_err(|_| KstError::WrongKey)
     }
 }
 
@@ -137,18 +154,27 @@ impl KeyStore for EncryptedFileKeyStore {
         let mut out = Vec::with_capacity(parts.len());
         for part in parts {
             let wrapped = wrap(self.kek.expose(), part.body()).map_err(|_| KstError::Crypto)?;
-            out.push(WrappedShare { index: part.index, wrapped });
+            out.push(WrappedShare {
+                index: part.index,
+                wrapped,
+            });
         }
         Ok(out)
     }
 
-    fn restore(&mut self, id: &str, shares: &[WrappedShare], exportable: bool) -> Result<(), KstError> {
+    fn restore(
+        &mut self,
+        id: &str,
+        shares: &[WrappedShare],
+        exportable: bool,
+    ) -> Result<(), KstError> {
         if shares.len() < 2 {
             return Err(KstError::InsufficientShares);
         }
         let mut parts = Vec::with_capacity(shares.len());
         for share in shares {
-            let body = cipher::unwrap(self.kek.expose(), &share.wrapped).map_err(|_| KstError::WrongKey)?;
+            let body = cipher::unwrap(self.kek.expose(), &share.wrapped)
+                .map_err(|_| KstError::WrongKey)?;
             parts.push(SeedShare::new(share.index, body.expose().to_vec()));
         }
         let mut seed = reconstruct(&parts)?;
@@ -161,7 +187,9 @@ impl KeyStore for EncryptedFileKeyStore {
 
 fn derive_kek(passphrase: &[u8], salt: &[u8]) -> Result<SecretBytes, KstError> {
     let mut out = [0u8; KEY_BYTES];
-    Argon2::default().hash_password_into(passphrase, salt, &mut out).map_err(|_| KstError::Crypto)?;
+    Argon2::default()
+        .hash_password_into(passphrase, salt, &mut out)
+        .map_err(|_| KstError::Crypto)?;
     let kek = SecretBytes::from_slice(&out);
     out.zeroize();
     Ok(kek)
