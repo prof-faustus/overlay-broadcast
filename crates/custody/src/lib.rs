@@ -11,14 +11,17 @@
 //!
 //! The default authority signature is true-threshold; the GG20 path serves REQ-CUS-004's
 //! requirement that a combined signature be a standard ECDSA signature for a BSV input.
-//! The GG18/20 MtA **range proof** ([`rangeproof`]) is implemented and verified inside
-//! every MtA in [`gg20::sign`]; the remaining hardening items (the responder MtAwc
-//! consistency proof and the Paillier-modulus proof) are noted in `docs/ARCHITECTURE.md`.
+//! All three GG18/20 malicious-security ZK proofs are implemented and verified inside every
+//! MtA in [`gg20::sign`]: the initiator range proof and the responder consistency proof Π′
+//! ([`rangeproof`]) and the Paillier-modulus well-formedness proof ([`modulusproof`]). The
+//! only residual item is cryptographic *attribution* on abort (identifiable abort), which
+//! needs the echo-broadcast round — see `docs/ARCHITECTURE.md`.
 #![forbid(unsafe_code)]
 
 pub mod error;
 pub mod gg20;
 pub mod lifecycle;
+pub mod modulusproof;
 mod paillier;
 pub mod rangeproof;
 pub mod reconstruction;
@@ -205,6 +208,61 @@ mod tests {
         assert!(
             !verify(paillier.public(), &pedersen, &other, &proof, &q),
             "the proof is bound to its ciphertext"
+        );
+    }
+
+    // TST-CUS-004 (modulus proof): a valid Paillier modulus proves well-formed and the
+    // proof does not transfer to a different modulus (REQ-CUS-004 hardening).
+    #[test]
+    fn tst_cus_004d_paillier_modulus_proof() {
+        use crate::modulusproof::verify as verify_modulus;
+        use crate::paillier::PaillierPrivate;
+
+        let paillier = PaillierPrivate::generate(1024).unwrap();
+        let proof = paillier.prove_modulus().unwrap();
+        assert!(
+            verify_modulus(paillier.public().modulus(), &proof),
+            "valid modulus proof verifies"
+        );
+
+        let other = PaillierPrivate::generate(1024).unwrap();
+        assert!(
+            !verify_modulus(other.public().modulus(), &proof),
+            "the proof does not transfer to another modulus"
+        );
+    }
+
+    // TST-CUS-004 (responder proof): an honestly-formed MtA response c_b = c_a^b·Enc(beta')
+    // verifies, and the proof is bound to its exact response (REQ-CUS-004 hardening).
+    #[test]
+    fn tst_cus_004e_mta_responder_proof() {
+        use crate::paillier::PaillierPrivate;
+        use crate::rangeproof::{prove_responder, verify_responder, RingPedersen};
+        use num_bigint_dig::BigUint;
+
+        let paillier = PaillierPrivate::generate(1024).unwrap();
+        let pedersen = RingPedersen::generate(1024).unwrap();
+        let public = paillier.public();
+        let q = gg20::curve_order();
+
+        let a = BigUint::from(7u64);
+        let nonce_a = public.random_nonce().unwrap();
+        let c_a = public.encrypt_with(&a, &nonce_a);
+        let b = BigUint::from(9u64);
+        let beta = BigUint::from(123u64);
+        let s = public.random_nonce().unwrap();
+        let c_b = public.add(&public.mul_const(&c_a, &b), &public.encrypt_with(&beta, &s));
+
+        let proof = prove_responder(public, &pedersen, &c_a, &c_b, &b, &beta, &s, &q).unwrap();
+        assert!(
+            verify_responder(public, &pedersen, &c_a, &c_b, &proof, &q),
+            "honest responder proof verifies"
+        );
+
+        let tampered = public.add(&c_b, &public.encrypt_with(&BigUint::from(1u64), &s));
+        assert!(
+            !verify_responder(public, &pedersen, &c_a, &tampered, &proof, &q),
+            "the proof is bound to its response"
         );
     }
 

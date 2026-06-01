@@ -11,14 +11,17 @@
 //! Rounds: this reference runs the protocol in-process (as the FROST tests do); the
 //! pairwise MtA and the broadcast of `δ_i`, `Γ_i` map onto the network rounds of GG20.
 //!
-//! **Security status (REQ-CUS-002 known-attack disclosure):** the MtA **range proof**
-//! ([`crate::rangeproof`], Alice's proof Π) is implemented and verified inside every MtA,
-//! so a malicious initiator can no longer smuggle an out-of-range value to leak the
-//! responder's secret. Still outstanding for full malicious security / identifiable abort:
-//! the responder MtAwc consistency proof (Π′, binding the response to `g^{γ}`) and the
-//! Paillier-modulus well-formedness proof. The default Paillier modulus must be ≥ 2048 bits
-//! in production; the correctness bound only needs `n > q²`. See `docs/ARCHITECTURE.md`.
+//! **Security status (REQ-CUS-002 known-attack disclosure):** every MtA in [`sign`] now
+//! verifies all three GG18/20 ZK proofs — the initiator range proof and the responder
+//! consistency proof Π′ ([`crate::rangeproof`]), and each party's Paillier-modulus
+//! well-formedness proof ([`crate::modulusproof`], checked once up front). A malicious
+//! initiator, a malicious responder, and a malformed Paillier modulus are all rejected.
+//! The only residual item is *identifiable abort* (attributing a fault to a specific party
+//! on failure), which needs the echo-broadcast consistency round; until then a bad party
+//! causes a clean typed error, not an attributable one. Production Paillier modulus must be
+//! ≥ 2048 bits; the correctness bound alone needs `n > q²`. See `docs/ARCHITECTURE.md`.
 use crate::error::CustodyError;
+use crate::modulusproof::{self, ModulusProof};
 use crate::paillier::PaillierPrivate;
 use crate::rangeproof::{self, RingPedersen};
 use crate::shamir::{random_scalar, Share};
@@ -43,19 +46,23 @@ pub struct Gg20Party {
     share: Share,
     paillier: PaillierPrivate,
     ring_pedersen: RingPedersen,
+    modulus_proof: ModulusProof,
 }
 
 impl Gg20Party {
-    /// Create a party, generating its Paillier keypair and ring-Pedersen parameters at
-    /// `modulus_bits`.
+    /// Create a party, generating its Paillier keypair, ring-Pedersen parameters, and a
+    /// proof that its Paillier modulus is well-formed, all at `modulus_bits`.
     ///
     /// # Errors
-    /// [`CustodyError`] if key generation fails.
+    /// [`CustodyError`] if key generation or the modulus proof fails.
     pub fn new(share: Share, modulus_bits: usize) -> Result<Self, CustodyError> {
+        let paillier = PaillierPrivate::generate(modulus_bits)?;
+        let modulus_proof = paillier.prove_modulus()?;
         Ok(Self {
             share,
-            paillier: PaillierPrivate::generate(modulus_bits)?,
+            paillier,
             ring_pedersen: RingPedersen::generate(modulus_bits)?,
+            modulus_proof,
         })
     }
 
@@ -95,6 +102,12 @@ pub fn sign(parties: &[Gg20Party], message_hash: &[u8; 32]) -> Result<Vec<u8>, C
     let count = parties.len();
     if count < 2 {
         return Err(CustodyError::InsufficientShares);
+    }
+    // Reject any party whose Paillier modulus is not provably well-formed before it is used.
+    for party in parties {
+        if !modulusproof::verify(party.paillier.public().modulus(), &party.modulus_proof) {
+            return Err(CustodyError::BadShare);
+        }
     }
     let q = curve_order();
     let indices: Vec<Scalar> = parties.iter().map(Gg20Party::index).collect();
@@ -154,10 +167,24 @@ fn mta_accumulate(
             let ki = *k.get(i).ok_or(CustodyError::Signing)?;
             let gj = *gamma.get(j).ok_or(CustodyError::Signing)?;
             let wj = *w.get(j).ok_or(CustodyError::Signing)?;
-            let paillier = &parties.get(i).ok_or(CustodyError::Signing)?.paillier;
-            let verifier_pedersen = &parties.get(j).ok_or(CustodyError::Signing)?.ring_pedersen;
-            let (alpha, beta) = mta(paillier, verifier_pedersen, &ki, &gj, q)?;
-            let (mu, nu) = mta(paillier, verifier_pedersen, &ki, &wj, q)?;
+            let initiator = parties.get(i).ok_or(CustodyError::Signing)?;
+            let responder_pedersen = &parties.get(j).ok_or(CustodyError::Signing)?.ring_pedersen;
+            let (alpha, beta) = mta(
+                &initiator.paillier,
+                &initiator.ring_pedersen,
+                responder_pedersen,
+                &ki,
+                &gj,
+                q,
+            )?;
+            let (mu, nu) = mta(
+                &initiator.paillier,
+                &initiator.ring_pedersen,
+                responder_pedersen,
+                &ki,
+                &wj,
+                q,
+            )?;
             *delta.get_mut(i).ok_or(CustodyError::Signing)? += alpha;
             *delta.get_mut(j).ok_or(CustodyError::Signing)? += beta;
             *sigma.get_mut(i).ok_or(CustodyError::Signing)? += mu;
@@ -173,25 +200,45 @@ fn mta_accumulate(
 // counterparty. Correctness needs `a·b + beta' < n`, guaranteed by `n > q²`.
 fn mta(
     holder: &PaillierPrivate,
-    verifier_pedersen: &RingPedersen,
+    initiator_pedersen: &RingPedersen,
+    responder_pedersen: &RingPedersen,
     a: &Scalar,
     b: &Scalar,
     q: &BigUint,
 ) -> Result<(Scalar, Scalar), CustodyError> {
     let public = holder.public();
+    // Initiator (Alice) sends c_a = Enc(a) and proves a is in range; the responder verifies
+    // it under the responder's ring-Pedersen params (REQ-CUS-004).
     let a_big = scalar_to_biguint(a);
     let nonce = public.random_nonce()?;
     let c_a = public.encrypt_with(&a_big, &nonce);
-    // The initiator proves c_a encrypts an in-range value; the counterparty verifies the
-    // range proof before doing the homomorphic step (REQ-CUS-004 malicious-security).
-    let proof = rangeproof::prove(public, verifier_pedersen, &c_a, &a_big, &nonce, q)?;
-    if !rangeproof::verify(public, verifier_pedersen, &c_a, &proof, q) {
+    let range_proof = rangeproof::prove(public, responder_pedersen, &c_a, &a_big, &nonce, q)?;
+    if !rangeproof::verify(public, responder_pedersen, &c_a, &range_proof, q) {
         return Err(CustodyError::BadCommitment);
     }
+    // Responder (Bob) forms c_b = c_a^b · Enc(beta') with explicit randomness and proves the
+    // response is well-formed with b in range; the initiator verifies it under the
+    // initiator's ring-Pedersen params.
     let beta_prime = random_scalar()?;
-    let c_mul = public.mul_const(&c_a, &scalar_to_biguint(b));
-    let c_beta = public.encrypt(&scalar_to_biguint(&beta_prime))?;
+    let beta_big = scalar_to_biguint(&beta_prime);
+    let b_big = scalar_to_biguint(b);
+    let response_nonce = public.random_nonce()?;
+    let c_mul = public.mul_const(&c_a, &b_big);
+    let c_beta = public.encrypt_with(&beta_big, &response_nonce);
     let c_b = public.add(&c_mul, &c_beta);
+    let responder_proof = rangeproof::prove_responder(
+        public,
+        initiator_pedersen,
+        &c_a,
+        &c_b,
+        &b_big,
+        &beta_big,
+        &response_nonce,
+        q,
+    )?;
+    if !rangeproof::verify_responder(public, initiator_pedersen, &c_a, &c_b, &responder_proof, q) {
+        return Err(CustodyError::BadCommitment);
+    }
     let alpha = scalar_from_biguint_mod_q(&holder.decrypt(&c_b), q)?;
     Ok((alpha, -beta_prime))
 }

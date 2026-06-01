@@ -130,6 +130,15 @@ impl PaillierPrivate {
         &self.public
     }
 
+    /// Produce a zero-knowledge proof that this modulus is a valid Paillier modulus
+    /// (`gcd(N, φ(N)) = 1`), provable because the holder knows `λ(N)`.
+    ///
+    /// # Errors
+    /// [`CustodyError::BadParams`] if the modulus is malformed.
+    pub fn prove_modulus(&self) -> Result<crate::modulusproof::ModulusProof, CustodyError> {
+        crate::modulusproof::prove(&self.public.n, &self.lambda)
+    }
+
     /// Decrypt a ciphertext to its plaintext residue mod `n`.
     #[must_use]
     pub fn decrypt(&self, c: &BigUint) -> BigUint {

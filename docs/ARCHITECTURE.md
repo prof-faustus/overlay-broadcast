@@ -71,19 +71,22 @@ signing modes are built:
    - **Rounds:** the canonical GG20 flow is 1 offline round-set (commit `g^{γ_i}`,
      pairwise MtA for `δ=kγ` and `σ=kx`, reveal `δ_i`) + 1 online round (reveal `Γ_i`,
      broadcast `s_i`). This reference executes those rounds in-process.
-   - **Range proof — IMPLEMENTED (2026-06).** The GG18/20 MtA **range proof** (Alice's
-     proof Π; `custody::rangeproof`) is implemented over ring-Pedersen parameters with
-     Fiat–Shamir and is **verified inside every MtA** in `gg20::sign` (`TST-CUS-004` +
-     `tst_cus_004c_mta_range_proof`). A malicious initiator can no longer smuggle an
-     out-of-range value to leak the responder's secret. Still outstanding for full
-     malicious security / identifiable abort: the **responder MtAwc consistency proof**
-     (Π′, binding the homomorphic response to `g^{γ_i}`) and the **Paillier-modulus
-     well-formedness proof** — the next hardening items.
-   - **Known-attack caveats:** with the initiator range proof in place, the residual gap is
-     a malicious *responder* (no Π′ yet) and an ill-formed Paillier modulus (no modulus
-     proof yet); until both land, run among mutually-trusting signers for the strongest
-     guarantee. Paillier modulus **≥ 2048 bits in production** (the `n > q²` correctness
-     bound alone needs ~512); tests use 1024 for speed.
+   - **ZK proofs — ALL IMPLEMENTED (2026-06).** Every MtA in `gg20::sign` verifies the full
+     GG18/20 malicious-security proof set, all hand-rolled over ring-Pedersen parameters
+     with Fiat–Shamir:
+     - **Initiator range proof** (Alice's Π; `custody::rangeproof::prove`/`verify`) — the
+       initiator's ciphertext encrypts an in-range value (`TST-CUS-004`, `tst_cus_004c`).
+     - **Responder consistency proof** (Bob's Π′; `rangeproof::prove_responder`/
+       `verify_responder`) — `c_b = c_a^b·Enc(β')` is well-formed with `b` in range
+       (`tst_cus_004e`).
+     - **Paillier-modulus proof** (Π_N; `custody::modulusproof`) — each party's modulus
+       satisfies `gcd(N, φ(N)) = 1`, checked once up front in `sign` (`tst_cus_004d`).
+   - **Residual item — identifiable abort.** A malicious initiator/responder and a malformed
+     modulus are all *rejected* (clean typed error). What remains is cryptographic
+     *attribution* of a fault to a specific party on abort, which needs the echo-broadcast
+     consistency round; that is the last GG20 hardening step. Paillier modulus **≥ 2048 bits
+     in production** (the `n > q²` correctness bound alone needs ~512); tests use 1024, and
+     the modulus proof uses 12 challenges for test speed (production ≥ 80).
 2. **FROST true-threshold Schnorr** (Komlo–Goldberg 2020) — committed nonces, Lagrange on
    partial signatures, key never reconstructed; for authority signatures off the on-chain
    input path (REQ-CUS-001/003).
