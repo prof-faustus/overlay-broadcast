@@ -3,7 +3,7 @@ name = "custody"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Threshold signing (FROST-style Schnorr; key never reconstructed) and a Shamir-reconstruction fallback, with an anchorable rotation/revocation lifecycle."
+description = "Threshold signing — FROST Schnorr and GG20 threshold ECDSA (key never reconstructed) — with a Shamir-reconstruction fallback and an anchorable rotation/revocation lifecycle."
 
 [dependencies]
 thiserror = { workspace = true }
@@ -13,6 +13,9 @@ bsv = { path = "../bsv" }
 ckd = { path = "../ckd" }
 k256 = { workspace = true }
 sha2 = { workspace = true }
+num-bigint-dig = { workspace = true }
+num-integer = { workspace = true }
+rand = { workspace = true }
 
 [lints]
 workspace = true

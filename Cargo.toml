@@ -25,6 +25,14 @@ hkdf = "0.12"
 k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "std"] }
 aes-gcm = "0.10"
 proptest = "1.6"
+# GG20 threshold ECDSA (REQ-CUS-004): Paillier homomorphic encryption needs
+# arbitrary-precision modular arithmetic and safe-prime generation. `num-bigint-dig`
+# is the same big-integer backend the RustCrypto `rsa` crate uses (modpow, mod_inverse,
+# prime generation); `num-integer` supplies lcm/gcd; `rand` (OsRng) seeds prime/nonce
+# sampling.
+num-bigint-dig = { version = "0.8", features = ["prime", "rand"] }
+num-integer = "0.1"
+rand = "0.8"
 
 # REQ-GOV-031 / REQ-GOV-011: maximum lint strictness, denied workspace-wide. Each
 # crate opts in with `[lints] workspace = true`. `forbid(unsafe_code)` is applied as

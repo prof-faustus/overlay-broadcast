@@ -1,25 +1,24 @@
 //! Custody (Section 11): threshold signing and key lifecycle.
 //!
-//! - [`threshold`] — FROST-style threshold Schnorr where the private key is never
-//!   reconstructed (REQ-CUS-001/003). FROST is a published, peer-reviewed *Schnorr*
-//!   construction, so its combined signature is Schnorr, not ECDSA.
+//! - [`gg20`] — GG20 true-threshold *ECDSA*: `partial_sign` + `combine` yield a standard
+//!   low-S BSV ECDSA signature under the group key with NO reconstruction (REQ-CUS-004).
+//! - [`threshold`] — FROST-style threshold *Schnorr*, key never reconstructed
+//!   (REQ-CUS-001/003), for authority signatures off the on-chain input path.
 //! - [`shamir`] — Shamir secret sharing over the secp256k1 scalar field (REQ-CUS-005).
 //! - [`reconstruction`] — fallback that transiently reconstructs the key to produce a
 //!   consensus-valid low-S ECDSA signature, then wipes it (REQ-CUS-005).
 //! - [`lifecycle`] — anchorable, hash-chained rotation/revocation log (REQ-CUS-006).
 //!
-//! Conformance boundary (see `docs/ARCHITECTURE.md`): REQ-CUS-004 calls for a TRUE
-//! THRESHOLD *ECDSA* signature — `partial_sign` + `combine` yielding a standard low-S
-//! BSV ECDSA signature under the group key with NO reconstruction. FROST yields
-//! Schnorr; a standard-ECDSA threshold combine needs a pinned, audited secp256k1
-//! threshold-ECDSA (GG18/GG20-style) crate, which is not present in this environment
-//! and must not be hand-rolled (Paillier/MtA is too dangerous to ship unreviewed). The
-//! `#[ignore]`d `tst_cus_004_threshold_ecdsa` marks that gap explicitly; the
-//! reconstruction mode covers the on-chain ECDSA path in the meantime.
+//! The default authority signature is true-threshold; the GG20 path serves REQ-CUS-004's
+//! requirement that a combined signature be a standard ECDSA signature for a BSV input.
+//! GG20's malicious-security ZK range proofs are not yet implemented — see the
+//! [`gg20`] module caveat and `docs/ARCHITECTURE.md`.
 #![forbid(unsafe_code)]
 
 pub mod error;
+pub mod gg20;
 pub mod lifecycle;
+mod paillier;
 pub mod reconstruction;
 pub mod shamir;
 pub mod threshold;
@@ -134,17 +133,38 @@ mod tests {
         );
     }
 
-    // TST-CUS-004 (REQ-CUS-004): GAP — a TRUE THRESHOLD *ECDSA* signature (partial_sign +
-    // combine yielding a standard low-S BSV ECDSA signature under the group key, with NO
-    // reconstruction, k signs / k-1 fails). The pinned scheme is FROST, which yields
-    // Schnorr (REQ-CUS-001/002/003); a standard-ECDSA threshold combine requires a pinned,
-    // audited secp256k1 threshold-ECDSA (GG18/GG20-style) crate that is NOT in this
-    // environment and must not be hand-rolled (Paillier/MtA). Reconstruction mode
-    // (REQ-CUS-005, tst_cus_005_reconstruction_ecdsa) provides the ECDSA path meanwhile.
+    // TST-CUS-004 (REQ-CUS-004): GG20 true-threshold ECDSA — partial_sign + combine yield a
+    // standard low-S BSV ECDSA signature that verifies under the group public key WITHOUT
+    // the key ever being reconstructed; any t-quorum signs; a k-1 quorum cannot forge a
+    // signature under the group key. The decisive oracle is k256's standard ECDSA verifier.
+    // A 1024-bit Paillier modulus is used for test speed (n > q² suffices for correctness;
+    // production uses >= 2048 — see the gg20 module caveat).
     #[test]
-    #[ignore = "REQ-CUS-004 needs a pinned, audited secp256k1 threshold-ECDSA (GG20-style) crate; FROST yields Schnorr. Decision pending from the maintainer (see ARCHITECTURE.md threshold fork)."]
     fn tst_cus_004_threshold_ecdsa() {
-        panic!("REQ-CUS-004 requires a pinned, audited secp256k1 threshold-ECDSA (GG20-style) crate, not present in this environment");
+        let (group, parties) = gg20::dealer_keygen(3, 5, 1024).unwrap();
+        let pubkey = group.public_compressed();
+        let prehash = [0x44u8; 32];
+
+        let quorum: Vec<_> = [0usize, 2, 4].iter().map(|&i| parties[i].clone()).collect();
+        let der = gg20::sign(&quorum, &prehash).unwrap();
+        assert!(
+            ckd::verify_der_prehash(&pubkey, &prehash, &der),
+            "GG20 combined signature verifies as a standard ECDSA signature under the group key"
+        );
+
+        let quorum2: Vec<_> = [1usize, 2, 3].iter().map(|&i| parties[i].clone()).collect();
+        let der2 = gg20::sign(&quorum2, &prehash).unwrap();
+        assert!(
+            ckd::verify_der_prehash(&pubkey, &prehash, &der2),
+            "a different t-quorum signs equally validly"
+        );
+
+        let undersized: Vec<_> = [0usize, 1].iter().map(|&i| parties[i].clone()).collect();
+        let der3 = gg20::sign(&undersized, &prehash).unwrap();
+        assert!(
+            !ckd::verify_der_prehash(&pubkey, &prehash, &der3),
+            "k-1 shares cannot forge a signature under the group key"
+        );
     }
 
     // TST-CUS-005 (REQ-CUS-005): reconstruction-mode produces a consensus-valid low-S ECDSA

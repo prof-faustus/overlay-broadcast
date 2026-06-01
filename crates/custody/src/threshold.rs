@@ -197,7 +197,7 @@ fn challenge_scalar(r: &ProjectivePoint, p: &ProjectivePoint, message: &[u8]) ->
     <Scalar as Reduce<U256>>::reduce_bytes(&FieldBytes::clone_from_slice(&digest))
 }
 
-fn lagrange_coefficient(signing_set: &[Scalar], j: Scalar) -> Scalar {
+pub(crate) fn lagrange_coefficient(signing_set: &[Scalar], j: Scalar) -> Scalar {
     let mut numerator = Scalar::ONE;
     let mut denominator = Scalar::ONE;
     for &m in signing_set {

@@ -58,12 +58,32 @@ path. The alternative — GG20 threshold ECDSA (Gennaro–Goldfeder, 2020) — y
 on-chain-valid ECDSA but has a thinner audited-Rust surface. This fork is flagged
 for explicit ratification when custody is built.
 
-**Ratified at step 10 (2026-05):** built as pinned — FROST true-threshold Schnorr
-(committed nonces, Lagrange on partial signatures; key never reconstructed) for
-authority signatures, plus Shamir-reconstruction mode for the single on-chain ECDSA
-signature path (transient reconstruction, key wiped via `Scalar`/byte zeroize). GG20
-remains the documented upgrade if a future requirement needs true-threshold *ECDSA*
-on the input path; revisit when an audited GG20 Rust crate is available.
+**Ratified at step 10 (2026-06), maintainer decision = hand-roll GG20.** Three custody
+signing modes are built:
+
+1. **GG20 threshold ECDSA** (Gennaro–Goldfeder, "One Round Threshold ECDSA with
+   Identifiable Abort", 2020) — the REQ-CUS-004 path. `partial_sign` + `combine` yield a
+   standard low-S BSV ECDSA signature verifying under the group public key, with the key
+   never reconstructed. Built from scratch (`gg20.rs` + a from-scratch Paillier in
+   `paillier.rs`) over `num-bigint-dig`.
+   - **Rounds:** the canonical GG20 flow is 1 offline round-set (commit `g^{γ_i}`,
+     pairwise MtA for `δ=kγ` and `σ=kx`, reveal `δ_i`) + 1 online round (reveal `Γ_i`,
+     broadcast `s_i`). This reference executes those rounds in-process.
+   - **Abort behaviour:** correctness/`semi-honest` only. The Paillier-ciphertext **ZK
+     range proofs** (MtA range proof, consistency proof for `g^{γ_i}`, Paillier-modulus
+     well-formedness proof) that GG20 needs for **malicious security and identifiable
+     abort are NOT yet implemented.** Current behaviour on a cheating party is a silent
+     bad signature (caught by final ECDSA verification), not identifiable abort.
+   - **Known-attack caveats:** without the range proofs a malicious signer can deviate
+     undetectably (e.g. small-factor / out-of-range Paillier attacks); use only among
+     mutually-trusting signers until the proofs are added. Paillier modulus **≥ 2048 bits
+     in production** (the `n > q²` correctness bound alone needs ~512); tests use 1024 for
+     speed. This is the next hardening item for the custody crate.
+2. **FROST true-threshold Schnorr** (Komlo–Goldberg 2020) — committed nonces, Lagrange on
+   partial signatures, key never reconstructed; for authority signatures off the on-chain
+   input path (REQ-CUS-001/003).
+3. **Shamir-reconstruction ECDSA** — clearly-labelled fallback that transiently
+   reconstructs a quorum, signs low-S ECDSA, and wipes the key (REQ-CUS-005).
 
 ### KeyStore backends (REQ-KST-010/011)
 
