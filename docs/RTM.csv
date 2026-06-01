@@ -150,3 +150,9 @@ REQ-BENCH-001,BENCH,T,TST-BENCH-001
 REQ-BENCH-002,BENCH,T,TST-BENCH-002
 REQ-BENCH-003,BENCH,I,artifact-bench-measured-only
 REQ-TST-040,TST,T,TST-TST-040
+REQ-TST-001,TST,T,gate-cargo-test-all
+REQ-TST-002,TST,T,TST-TST-002
+REQ-TST-010,TST,T,gate-coverage-ci
+REQ-TST-011,TST,T,gate-mutation-ci
+REQ-TST-012,TST,T,TST-TST-012
+REQ-TST-050,TST,I,artifact-ignore-naming-discipline

@@ -1,0 +1,16 @@
+[package]
+name = "proptests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Property tests (REQ-TST-002) for keygraph/ckd/overlay/broadcast invariants: derivation determinism, obfuscation and broadcast round-trips, hash determinism."
+
+[dev-dependencies]
+proptest = { workspace = true }
+bsv = { path = "../bsv" }
+cipher = { path = "../cipher" }
+overlay = { path = "../overlay" }
+broadcast = { path = "../broadcast" }
+
+[lints]
+workspace = true

@@ -1,0 +1,14 @@
+[package]
+name = "conformance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Conformance / interop tests (REQ-TST-012): EP and GB transactions are built and re-validated via an independent parse path and the standard ECDSA verifier, proving protocol validity rather than self-consistency."
+
+[dev-dependencies]
+bsv = { path = "../bsv" }
+ckd = { path = "../ckd" }
+custody = { path = "../custody" }
+
+[lints]
+workspace = true

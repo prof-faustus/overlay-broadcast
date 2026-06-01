@@ -53,6 +53,38 @@ jobs:
           name: sbom
           path: docs/sbom.cyclonedx.json
 
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install coverage tooling
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov --locked
+      # REQ-TST-010: line+branch coverage, gated at documented minimums. The crypto/
+      # protocol crates (secmem, bsv, ckd, cipher, keygraph, overlay, broadcast, session,
+      # custody) carry the higher MC/DC-level bar.
+      - name: Coverage (protocol crates, >= 90%)
+        run: |
+          cargo llvm-cov --branch --fail-under-lines 90 \
+            -p secmem -p bsv -p ckd -p cipher -p keygraph -p overlay -p broadcast -p session -p custody
+      - name: Coverage (workspace, >= 80%)
+        run: cargo llvm-cov --workspace --fail-under-lines 80
+
+  mutation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked
+      # REQ-TST-011: mutation testing on the crypto/protocol crates; surviving mutants must
+      # be killed by a new test or documented as equivalent.
+      - name: Mutation triage (protocol crates)
+        run: |
+          for crate in secmem bsv ckd cipher keygraph overlay broadcast session custody; do
+            cargo mutants -p "$crate" --in-place || exit 1
+          done
+
   fuzz:
     runs-on: ubuntu-latest
     steps:
