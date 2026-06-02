@@ -163,4 +163,17 @@ pub enum CustodyAction {
     Rotate,
     /// Revoke a custody key.
     Revoke,
+    /// Threshold-sign a 32-byte prehash with a t-of-n quorum (Mode B; the group private key is
+    /// never reconstructed). Prints the group public key and a standard ECDSA (DER, low-S) signature.
+    Sign {
+        /// The signing threshold.
+        #[arg(long)]
+        threshold: usize,
+        /// The number of shares.
+        #[arg(long)]
+        shares: usize,
+        /// The 32-byte message hash to sign (hex).
+        #[arg(long)]
+        message: String,
+    },
 }

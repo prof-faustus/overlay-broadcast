@@ -185,6 +185,28 @@ fn run_custody(action: CustodyAction) -> Result<String, CliError> {
                 .map_err(|_| CliError::Operation("revoke"))?;
             Ok(format!("revoked={}", custodian.is_revoked()))
         }
+        CustodyAction::Sign {
+            threshold,
+            shares,
+            message,
+        } => {
+            let bytes = decode_hex(&message)?;
+            let hash: [u8; 32] = bytes
+                .try_into()
+                .map_err(|_| CliError::BadInput("message must be 32 bytes"))?;
+            // Trusted-dealer keygen then a t-of-n threshold sign — the group secret is split into
+            // additive shares and never reconstructed (GG20, Mode B). Modulus ≥ 2048 (n > q²).
+            let (group, parties) = custody::gg20::dealer_keygen(threshold, shares, 2048)
+                .map_err(|_| CliError::BadInput("threshold/shares"))?;
+            let quorum = &parties[..threshold];
+            let sig = custody::gg20::sign(quorum, &hash)
+                .map_err(|_| CliError::Operation("threshold sign"))?;
+            Ok(format!(
+                "pubkey={} sig={}",
+                bytes_to_hex(&group.public_compressed()),
+                bytes_to_hex(&sig)
+            ))
+        }
     }
 }
 
