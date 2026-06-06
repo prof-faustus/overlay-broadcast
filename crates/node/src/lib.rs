@@ -180,10 +180,7 @@ mod tests {
             serde_json::Value::Null
         );
         // empty string is not valid JSON
-        assert!(matches!(
-            parse_rpc_result(""),
-            Err(NodeError::Decode)
-        ));
+        assert!(matches!(parse_rpc_result(""), Err(NodeError::Decode)));
     }
 
     // Base64 basic-auth encoding matches the known vector.
@@ -231,7 +228,8 @@ mod tests {
             "id": "overlay-broadcast",
             "method": "getbestblockhash",
             "params": []
-        }).to_string();
+        })
+        .to_string();
         let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(parsed["method"], "getbestblockhash");
         assert_eq!(parsed["jsonrpc"], "1.0");

@@ -17,6 +17,12 @@ pub use pin::{
 pub use seeds::{Position, Seeds};
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 mod tests {
     use super::*;
 
@@ -43,8 +49,14 @@ mod tests {
     fn from_seed_too_short_or_long() {
         assert!(XPriv::from_seed(&[0u8; 15]).is_err(), "15 bytes rejected");
         assert!(XPriv::from_seed(&[0u8; 65]).is_err(), "65 bytes rejected");
-        assert!(XPriv::from_seed(&[0x11u8; 16]).is_ok(), "16 bytes min accepted");
-        assert!(XPriv::from_seed(&[0x11u8; 64]).is_ok(), "64 bytes max accepted");
+        assert!(
+            XPriv::from_seed(&[0x11u8; 16]).is_ok(),
+            "16 bytes min accepted"
+        );
+        assert!(
+            XPriv::from_seed(&[0x11u8; 64]).is_ok(),
+            "64 bytes max accepted"
+        );
     }
 
     #[test]
@@ -79,7 +91,10 @@ mod tests {
     fn to_xpub_and_public_key_match() {
         let priv_key = XPriv::from_seed(&[0xEEu8; 32]).unwrap();
         let pub_key = priv_key.to_xpub().unwrap();
-        assert_eq!(pub_key.public_key_compressed(), priv_key.public_key_compressed().unwrap());
+        assert_eq!(
+            pub_key.public_key_compressed(),
+            priv_key.public_key_compressed().unwrap()
+        );
         assert_eq!(pub_key.chain_code(), priv_key.chain_code());
         assert_eq!(pub_key.child_number(), priv_key.child_number());
     }
@@ -88,7 +103,10 @@ mod tests {
     fn xpub_hardened_child_refused() {
         let priv_key = XPriv::from_seed(&[0xFFu8; 32]).unwrap();
         let xpub = priv_key.to_xpub().unwrap();
-        assert!(xpub.derive_child(HARDENED).is_err(), "hardened via pubkey -> error");
+        assert!(
+            xpub.derive_child(HARDENED).is_err(),
+            "hardened via pubkey -> error"
+        );
         assert!(xpub.derive_child(HARDENED | 1).is_err());
         assert!(xpub.derive_child(0).is_ok(), "non-hardened is fine");
     }
@@ -99,16 +117,16 @@ mod tests {
         let stepwise = master
             .derive_child(HARDENED | 44)
             .unwrap()
-            .derive_child(HARDENED | 0)
+            .derive_child(HARDENED)
             .unwrap()
-            .derive_child(HARDENED | 0)
+            .derive_child(HARDENED)
             .unwrap()
             .derive_child(0)
             .unwrap()
             .derive_child(1)
             .unwrap();
         let via_path = master
-            .derive_path(&[HARDENED | 44, HARDENED | 0, HARDENED | 0, 0, 1])
+            .derive_path(&[HARDENED | 44, HARDENED, HARDENED, 0, 1])
             .unwrap();
         assert_eq!(stepwise.private_key_bytes(), via_path.private_key_bytes());
         assert_eq!(stepwise.chain_code(), via_path.chain_code());

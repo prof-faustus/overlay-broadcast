@@ -362,9 +362,18 @@ mod tests {
             operation_from_name("session.renew"),
             Some(Operation::SessionRenew)
         );
-        assert_eq!(operation_from_name("session.revoke"), Some(Operation::SessionRevoke));
-        assert_eq!(operation_from_name("custody.rotate"), Some(Operation::CustodyRotate));
-        assert_eq!(operation_from_name("custody.revoke"), Some(Operation::CustodyRevoke));
+        assert_eq!(
+            operation_from_name("session.revoke"),
+            Some(Operation::SessionRevoke)
+        );
+        assert_eq!(
+            operation_from_name("custody.rotate"),
+            Some(Operation::CustodyRotate)
+        );
+        assert_eq!(
+            operation_from_name("custody.revoke"),
+            Some(Operation::CustodyRevoke)
+        );
         assert_eq!(operation_from_name("health"), Some(Operation::Health));
         assert_eq!(operation_from_name("readiness"), Some(Operation::Readiness));
         assert_eq!(operation_from_name("bogus"), None);
@@ -433,7 +442,8 @@ mod tests {
     fn tst_srv_011_custody_keygen_operation() {
         // custody.keygen with a real (non-node) backend returns the group public key
         let mut router = router();
-        let unsigned = br#"{"caller":"svc","operation":"custody.keygen","nonce":42,"expiry":10000000}"#;
+        let unsigned =
+            br#"{"caller":"svc","operation":"custody.keygen","nonce":42,"expiry":10000000}"#;
         let reply = router.route("POST", "/v1/operation", unsigned, 1_000);
         // without a registered caller, the signature check fails first
         assert_eq!(reply.status, 401);
