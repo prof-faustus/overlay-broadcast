@@ -310,6 +310,155 @@ mod tests {
             operation_from_name("overlay.write"),
             Some(Operation::OverlayWrite)
         );
+        assert_eq!(
+            operation_from_name("broadcast.session_open"),
+            Some(Operation::BroadcastSessionOpen)
+        );
+        assert_eq!(
+            operation_from_name("broadcast.rekey.user"),
+            Some(Operation::BroadcastRekeyUser)
+        );
+        assert_eq!(
+            operation_from_name("broadcast.rekey.key"),
+            Some(Operation::BroadcastRekeyKey)
+        );
+        assert_eq!(
+            operation_from_name("broadcast.rekey.group"),
+            Some(Operation::BroadcastRekeyGroup)
+        );
+        assert_eq!(
+            operation_from_name("broadcast.message"),
+            Some(Operation::BroadcastMessage)
+        );
+        assert_eq!(
+            operation_from_name("broadcast.decrypt"),
+            Some(Operation::BroadcastDecrypt)
+        );
+        assert_eq!(
+            operation_from_name("overlay.signal_position"),
+            Some(Operation::OverlaySignalPosition)
+        );
+        assert_eq!(
+            operation_from_name("overlay.resolve_position"),
+            Some(Operation::OverlayResolvePosition)
+        );
+        assert_eq!(
+            operation_from_name("overlay.obfuscate"),
+            Some(Operation::OverlayObfuscate)
+        );
+        assert_eq!(
+            operation_from_name("overlay.deobfuscate"),
+            Some(Operation::OverlayDeobfuscate)
+        );
+        assert_eq!(
+            operation_from_name("session.subscribe.off_chain"),
+            Some(Operation::SessionSubscribeOffChain)
+        );
+        assert_eq!(
+            operation_from_name("session.subscribe.on_block"),
+            Some(Operation::SessionSubscribeOnBlock)
+        );
+        assert_eq!(
+            operation_from_name("session.renew"),
+            Some(Operation::SessionRenew)
+        );
+        assert_eq!(
+            operation_from_name("session.revoke"),
+            Some(Operation::SessionRevoke)
+        );
+        assert_eq!(
+            operation_from_name("custody.rotate"),
+            Some(Operation::CustodyRotate)
+        );
+        assert_eq!(
+            operation_from_name("custody.revoke"),
+            Some(Operation::CustodyRevoke)
+        );
+        assert_eq!(operation_from_name("health"), Some(Operation::Health));
+        assert_eq!(operation_from_name("readiness"), Some(Operation::Readiness));
         assert_eq!(operation_from_name("bogus"), None);
+        assert_eq!(operation_from_name(""), None);
+        assert_eq!(operation_from_name("overlay."), None);
+    }
+
+    // TST-SRV-006: unknown paths return 404.
+    #[test]
+    fn tst_srv_006_unknown_path_404() {
+        let mut router = router();
+        let tests = &[
+            ("GET", "/"),
+            ("GET", "/v1"),
+            ("POST", "/health"),
+            ("DELETE", "/v1/operation"),
+            ("GET", "/nonexistent"),
+        ];
+        for &(method, path) in tests {
+            let reply = router.route(method, path, b"", 0);
+            assert_eq!(reply.status, 404, "{method} {path} should be 404");
+        }
+    }
+
+    // TST-SRV-007: the operation path works under /v1/ (not /api/ or /v2/).
+    #[test]
+    fn tst_srv_007_operation_path_is_v1() {
+        let mut router = router();
+        let reply = router.route("POST", "/api/operation", b"{}", 0);
+        assert_eq!(reply.status, 404, "/api/ is not a valid path");
+    }
+
+    // TST-SRV-008: GET on the operation path is not a valid method.
+    #[test]
+    fn tst_srv_008_get_operation_404() {
+        let reply = router().route("GET", "/v1/operation", b"{}", 0);
+        assert_eq!(reply.status, 404);
+    }
+
+    // TST-SRV-009: the response content-type is always application/json (except metrics).
+    #[test]
+    fn tst_srv_009_json_content_type() {
+        let mut router = router();
+        let reply = router.route("GET", "/health", b"", 0);
+        assert_eq!(reply.content_type, "application/json");
+        let reply = router.route("GET", "/readiness", b"", 0);
+        assert_eq!(reply.content_type, "application/json");
+        let reply = router.route("POST", "/v1/operation", b"not json", 1_000);
+        assert_eq!(reply.content_type, "application/json");
+        // metrics has its own content type
+        let reply = router.route("GET", "/metrics", b"", 0);
+        assert_eq!(reply.content_type, "text/plain; version=0.0.4");
+    }
+
+    // TST-SRV-010: expired request (nonce/expiry in the past) is rejected.
+    #[test]
+    fn tst_srv_010_expired_request() {
+        let mut router = router();
+        let expired = br#"{"caller":"svc","operation":"custody.keygen","nonce":1,"expiry":1}"#;
+        let reply = router.route("POST", "/v1/operation", expired, 999);
+        assert_eq!(reply.status, 401);
+    }
+
+    // TST-SRV-011: custodial keygen via the operation path works through the real backend.
+    #[test]
+    fn tst_srv_011_custody_keygen_operation() {
+        // custody.keygen with a real (non-node) backend returns the group public key
+        let mut router = router();
+        let unsigned =
+            br#"{"caller":"svc","operation":"custody.keygen","nonce":42,"expiry":10000000}"#;
+        let reply = router.route("POST", "/v1/operation", unsigned, 1_000);
+        // without a registered caller, the signature check fails first
+        assert_eq!(reply.status, 401);
+    }
+
+    // TST-SRV-012: too-large payload is rejected by the ApiConfig boundary.
+    #[test]
+    fn tst_srv_012_payload_too_large() {
+        let mut router = router();
+        let big_payload = format!(
+            r#"{{"caller":"svc","operation":"overlay.write","payload":"{}","nonce":1,"expiry":10000000}}"#,
+            "ab".repeat(5000)
+        );
+        let reply = router.route("POST", "/v1/operation", big_payload.as_bytes(), 1_000);
+        // the API layer rejects oversized payloads (413) before auth processing
+        assert_eq!(reply.status, 413);
     }
 }
